@@ -1,0 +1,217 @@
+import type { Category, CommunityGroup, Conversation, FeedPost, Professional } from "./types";
+
+export const categories: Category[] = [
+  { id: "ansiedade", label: "Ansiedade", accent: "#8b5cf6" },
+  { id: "autoconhecimento", label: "Autoconhecimento", accent: "#0f766e" },
+  { id: "relacionamentos", label: "Relacionamentos", accent: "#db2777" },
+  { id: "sono", label: "Sono", accent: "#f59e0b" },
+  { id: "emagrecimento", label: "Emagrecimento", accent: "#16a34a" },
+  { id: "exercicio", label: "Exercício físico", accent: "#2563eb" },
+];
+
+export const professionals: Professional[] = [
+  {
+    id: "prof-1",
+    name: "Dra. Camila Nogueira",
+    role: "Psicóloga clínica",
+    specialty: "Ansiedade e burnout",
+    accent: "#7c3aed",
+  },
+  {
+    id: "prof-2",
+    name: "Dr. João Pereira",
+    role: "Psicoterapeuta",
+    specialty: "Relacionamentos",
+    accent: "#0f766e",
+  },
+  {
+    id: "prof-3",
+    name: "Dra. Lívia Andrade",
+    role: "Neuropsicóloga",
+    specialty: "Autoconhecimento",
+    accent: "#be123c",
+  },
+  {
+    id: "prof-4",
+    name: "Dr. Rafael Souza",
+    role: "Educador físico",
+    specialty: "Treinos e desafios",
+    accent: "#2563eb",
+  },
+  {
+    id: "prof-5",
+    name: "Dra. Beatriz Lima",
+    role: "Nutricionista",
+    specialty: "Emagrecimento saudável",
+    accent: "#16a34a",
+  },
+];
+
+export const initialGroups: CommunityGroup[] = [
+  {
+    id: "grp-1",
+    name: "Respirar Antes de Reagir",
+    description: "Um espaço para trocar técnicas de respiração e regulação da ansiedade no dia a dia.",
+    theme: "ansiedade",
+    adminId: "prof-1",
+    members: 2412,
+    joined: true,
+    isTemporary: false,
+    accent: "#8b5cf6",
+  },
+  {
+    id: "grp-2",
+    name: "Autoconhecimento em Prática",
+    description: "Reflexões guiadas e exercícios semanais para entender seus próprios padrões.",
+    theme: "autoconhecimento",
+    adminId: "prof-3",
+    members: 1834,
+    joined: false,
+    isTemporary: false,
+    accent: "#0f766e",
+  },
+  {
+    id: "grp-3",
+    name: "Limites com Leveza",
+    description: "Comunicação não violenta e limites saudáveis nos relacionamentos.",
+    theme: "relacionamentos",
+    adminId: "prof-2",
+    members: 1204,
+    joined: false,
+    isTemporary: false,
+    accent: "#db2777",
+  },
+  {
+    id: "grp-4",
+    name: "Noites Mais Leves",
+    description: "Rotinas de sono e higiene do descanso para quem sofre com insônia.",
+    theme: "sono",
+    adminId: "prof-1",
+    members: 876,
+    joined: false,
+    isTemporary: false,
+    accent: "#f59e0b",
+  },
+  {
+    id: "grp-5",
+    name: "Desafio 5 Dias Sem Ansiedade",
+    description: "Um programa curto e guiado com práticas diárias para reduzir picos de ansiedade.",
+    theme: "ansiedade",
+    adminId: "prof-1",
+    members: 592,
+    joined: true,
+    isTemporary: true,
+    durationDays: 5,
+    accent: "#7c3aed",
+  },
+  {
+    id: "grp-6",
+    name: "Desafio 21 Dias de Movimento",
+    description: "Programa de exercícios progressivos para criar o hábito de se movimentar.",
+    theme: "exercicio",
+    adminId: "prof-4",
+    members: 341,
+    joined: false,
+    isTemporary: true,
+    durationDays: 21,
+    accent: "#2563eb",
+  },
+  {
+    id: "grp-7",
+    name: "Reeducação Alimentar em 10 Dias",
+    description: "Pequenas mudanças diárias para uma relação mais saudável com a comida.",
+    theme: "emagrecimento",
+    adminId: "prof-5",
+    members: 268,
+    joined: false,
+    isTemporary: true,
+    durationDays: 10,
+    accent: "#16a34a",
+  },
+];
+
+export const initialPostsByGroup: Record<string, FeedPost[]> = {
+  "grp-1": [
+    {
+      id: "post-1",
+      author: "Maya",
+      handle: "@maya",
+      group: "grp-1",
+      body: "Hoje eu aprendi que não preciso resolver tudo de uma vez. Um passo de cada vez já é progresso.",
+      time: "10 min",
+      likes: 312,
+      comments: 19,
+    },
+  ],
+  "grp-2": [
+    {
+      id: "post-2",
+      author: "Léo",
+      handle: "@leo",
+      group: "grp-2",
+      body: "Identificar o que me esgota tem sido mais útil do que tentar aguentar tudo em silêncio.",
+      time: "25 min",
+      likes: 188,
+      comments: 11,
+    },
+  ],
+  "grp-3": [
+    {
+      id: "post-3",
+      author: "Clara",
+      handle: "@clara",
+      group: "grp-3",
+      body: "Estabelecer limites não é frieza, é cuidado. Estou aprendendo a me respeitar mais.",
+      time: "1 h",
+      likes: 244,
+      comments: 27,
+    },
+  ],
+  "grp-4": [
+    {
+      id: "post-4",
+      author: "Ravi",
+      handle: "@ravi",
+      group: "grp-4",
+      body: "Minha rotina de descanso ficou bem mais leve quando reduzi telas antes de dormir.",
+      time: "2 h",
+      likes: 95,
+      comments: 6,
+    },
+  ],
+  "grp-5": [],
+  "grp-6": [],
+  "grp-7": [],
+};
+
+export const initialConversations: Conversation[] = [
+  {
+    id: 1,
+    name: "Dra. Camila Nogueira",
+    context: "Psicóloga clínica · Ansiedade e burnout",
+    accent: "#7c3aed",
+    messages: [
+      { id: 1, sender: "them", text: "Oi! Vi que você entrou no grupo de ansiedade, como está se sentindo essa semana?", time: "09:12" },
+      { id: 2, sender: "me", text: "Oi, Dra. Camila! Andei praticando a respiração que você indicou.", time: "09:20" },
+      { id: 3, sender: "them", text: "Que ótimo saber disso. Continue assim, um passo de cada vez.", time: "09:22" },
+    ],
+  },
+  {
+    id: 2,
+    name: "Dr. João Pereira",
+    context: "Psicoterapeuta · Relacionamentos",
+    accent: "#0f766e",
+    messages: [
+      { id: 1, sender: "them", text: "Olá! Fico à disposição se quiser conversar sobre o grupo de relacionamentos.", time: "Ontem" },
+    ],
+  },
+  {
+    id: 3,
+    name: "Dra. Beatriz Lima",
+    context: "Nutricionista · Emagrecimento saudável",
+    accent: "#16a34a",
+    messages: [
+      { id: 1, sender: "them", text: "Bem-vinda ao desafio de reeducação alimentar! Qualquer dúvida, me chame por aqui.", time: "2 d" },
+    ],
+  },
+];
