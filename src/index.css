@@ -16,6 +16,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(135deg, #fdf2f8 0%, #f3f7ff 45%, #eefbf7 100%);
 }
 
@@ -1004,12 +1005,68 @@ button {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 16px;
+    padding: max(12px, env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));
   }
 
   .topbar {
-    flex-direction: column;
-    align-items: start;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+
+  .brand-subtitle,
+  .topbar-greeting {
+    display: none;
+  }
+
+  .topbar-user {
+    margin-left: auto;
+  }
+
+  .nav-links {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 40;
+    display: flex;
+    justify-content: space-around;
+    gap: 2px;
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+    background: rgba(255, 255, 255, 0.96);
+    border-top: 1px solid rgba(15, 23, 42, 0.1);
+    box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(16px);
+  }
+
+  .nav-link {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 4px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+
+  .screen {
+    margin-top: 16px;
+  }
+
+  .auth-shell {
+    min-height: 100dvh;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .auth-card {
+    padding: 24px 20px;
+    border-radius: 20px;
+  }
+
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-card {
+    max-height: 92dvh;
+    border-radius: 24px 24px 0 0;
+    padding: 20px 16px max(20px, env(safe-area-inset-bottom));
   }
 
   .composer-card,

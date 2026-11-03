@@ -1,4 +1,7 @@
 import type { CommunityGroup, Conversation, FeedPost } from "./types";
+import { Capacitor } from "@capacitor/core";
+
+const API_BASE_URL = (typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__).replace(/\/+$/, "");
 
 type RawGroup = {
   id: string;
@@ -29,7 +32,16 @@ function toGroup(raw: RawGroup): CommunityGroup {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  if (Capacitor.isNativePlatform()) {
+    if (!API_BASE_URL) {
+      throw new Error("Configure BUN_PUBLIC_API_URL com o endereço HTTPS da API antes de gerar o app mobile.");
+    }
+    if (!API_BASE_URL.startsWith("https://")) {
+      throw new Error("A API do app mobile deve usar HTTPS.");
+    }
+  }
+
+  const res = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });

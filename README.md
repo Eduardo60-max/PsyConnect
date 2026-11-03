@@ -1,21 +1,38 @@
-# bun-react-template
+# PsyConnect — demonstração
 
-To install dependencies:
+## Rodar no computador
 
-```bash
-bun install
-```
+1. Instale o [Bun](https://bun.sh/).
+2. Abra o PowerShell na pasta do projeto:
 
-To start a development server:
+   ```powershell
+   cd C:\Users\eduar\Desktop\Java\PsyConnect
+   ```
 
-```bash
-bun dev
-```
+3. Instale as dependências e inicie o app:
 
-To run for production:
+   ```powershell
+   bun install
+   bun run dev
+   ```
 
-```bash
-bun start
-```
+4. No navegador, acesse [http://localhost:3000](http://localhost:3000). Deixe o PowerShell aberto.
 
-This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Entrar e testar
+
+1. Digite um nome, por exemplo `Marina Demo`.
+2. Digite um e-mail, por exemplo `marina@example.com`.
+3. Marque o consentimento e toque em **Entrar**.
+4. Explore **Início**, **Especialistas**, **Agendamento**, **Grupos** e **Mensagens**.
+
+**Não há senha nem conta real:** qualquer nome e e-mail válidos permitem entrar. Use somente dados de exemplo.
+
+## Abrir no celular pela mesma rede Wi-Fi
+
+1. Descubra o IPv4 do computador com `ipconfig`.
+2. No celular conectado à mesma rede Wi-Fi, acesse `http://IP-DO-COMPUTADOR:3000` (por exemplo, `http://192.168.0.84:3000`).
+3. Se não abrir, permita o acesso do Bun no Firewall do Windows para redes privadas.
+
+Para encerrar o servidor, volte ao PowerShell e pressione **Ctrl+C**.
+
+> O app Android instalado também exige uma API publicada em HTTPS para carregar grupos e mensagens.

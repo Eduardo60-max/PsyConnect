@@ -5,14 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/index.ts",
-    "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
-    "start": "NODE_ENV=production bun src/index.ts"
+    "build": "bun scripts/build.mjs",
+    "start": "NODE_ENV=production bun src/index.ts",
+    "mobile:sync": "bun run build && bunx cap sync android",
+    "mobile:open": "bunx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/ios": "^7.4.3",
     "react": "^19",
     "react-dom": "^19"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/bun": "latest"
