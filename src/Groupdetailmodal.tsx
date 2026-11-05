@@ -1,6 +1,7 @@
 import { useState, type SyntheticEvent } from "react";
-import type { Category, CommunityGroup, FeedPost, Professional } from "./types";
+import type { Category, CommunityGroup, FeedPost, PostComment, Professional } from "./types";
 import { avatarInitial } from "./utils";
+import { addPostCommentRequest, fetchPostComments } from "./api";
 
 type GroupDetailModalProps = {
   group: CommunityGroup;
@@ -29,11 +30,56 @@ export function GroupDetailModal({
 }: Readonly<GroupDetailModalProps>) {
   const [draft, setDraft] = useState("");
 
+  // Comentários (cada post carrega os seus quando é aberto)
+  const [openPostId, setOpenPostId] = useState<string | null>(null);
+  const [commentsByPost, setCommentsByPost] = useState<Record<string, PostComment[]>>({});
+  const [loadingPostId, setLoadingPostId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentError, setCommentError] = useState("");
+  const [isSendingComment, setIsSendingComment] = useState(false);
+
   const handlePost = (event: SyntheticEvent) => {
     event.preventDefault();
     if (!draft.trim()) return;
     onAddPost(group.id, draft.trim());
     setDraft("");
+  };
+
+  const handleToggleComments = (postId: string) => {
+    setCommentError("");
+    setCommentDraft("");
+
+    if (openPostId === postId) {
+      setOpenPostId(null);
+      return;
+    }
+
+    setOpenPostId(postId);
+    if (commentsByPost[postId] || postId.startsWith("temp-")) return;
+
+    setLoadingPostId(postId);
+    fetchPostComments(postId)
+      .then(comments => setCommentsByPost(current => ({ ...current, [postId]: comments })))
+      .catch(() => setCommentError("Não foi possível carregar os comentários."))
+      .finally(() => setLoadingPostId(null));
+  };
+
+  const handleSendComment = async (event: SyntheticEvent, postId: string) => {
+    event.preventDefault();
+    const text = commentDraft.trim();
+    if (!text || isSendingComment) return;
+
+    setIsSendingComment(true);
+    setCommentError("");
+    try {
+      const comments = await addPostCommentRequest(postId, text);
+      setCommentsByPost(current => ({ ...current, [postId]: comments }));
+      setCommentDraft("");
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : "Não foi possível enviar o comentário.");
+    } finally {
+      setIsSendingComment(false);
+    }
   };
 
   const progressPercent = group.durationDays
@@ -125,34 +171,93 @@ export function GroupDetailModal({
 
           {posts.length === 0 && <p className="empty-state">Ainda não há publicações neste grupo. Seja a primeira pessoa a postar!</p>}
 
-          {posts.map(post => (
-            <article key={post.id} className="feed-card feed-card-compact">
-              <div className="feed-card-top">
-                <div className="avatar">{avatarInitial(post.author)}</div>
-                <div>
-                  <div className="feed-author-row">
-                    <strong>{post.author}</strong>
-                    <span>{post.handle}</span>
-                    <span>•</span>
-                    <span>{post.time}</span>
+          {posts.map(post => {
+            const isOpen = openPostId === post.id;
+            const comments = commentsByPost[post.id] ?? [];
+            const commentCount = Math.max(post.comments, comments.length);
+
+            return (
+              <article key={post.id} className="feed-card feed-card-compact">
+                <div className="feed-card-top">
+                  <div className="avatar">{avatarInitial(post.author)}</div>
+                  <div>
+                    <div className="feed-author-row">
+                      <strong>{post.author}</strong>
+                      <span>{post.handle}</span>
+                      <span>•</span>
+                      <span>{post.time}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <p className="feed-body">{post.body}</p>
-              <div className="feed-actions">
-                <button
-                  type="button"
-                  className={post.liked ? "like-btn liked" : "like-btn"}
-                  onClick={() => onToggleLike(group.id, post.id)}
-                  aria-pressed={Boolean(post.liked)}
-                  aria-label={post.liked ? "Remover curtida" : "Curtir"}
-                >
-                  {post.liked ? "♥" : "♡"} {post.likes}
-                </button>
-                <span>💬 {post.comments}</span>
-              </div>
-            </article>
-          ))}
+                <p className="feed-body">{post.body}</p>
+                <div className="feed-actions">
+                  <button
+                    type="button"
+                    className={post.liked ? "like-btn liked" : "like-btn"}
+                    onClick={() => onToggleLike(group.id, post.id)}
+                    aria-pressed={Boolean(post.liked)}
+                    aria-label={post.liked ? "Remover curtida" : "Curtir"}
+                  >
+                    {post.liked ? "♥" : "♡"} {post.likes}
+                  </button>
+                  <button
+                    type="button"
+                    className={isOpen ? "like-btn comment-toggle open" : "like-btn comment-toggle"}
+                    onClick={() => handleToggleComments(post.id)}
+                    aria-expanded={isOpen}
+                    aria-label={isOpen ? "Ocultar comentários" : "Ver comentários"}
+                  >
+                    💬 {commentCount}
+                  </button>
+                </div>
+
+                {isOpen && (
+                  <div className="comments-section">
+                    {loadingPostId === post.id && <p className="comments-empty">Carregando comentários...</p>}
+
+                    {loadingPostId !== post.id && comments.length === 0 && (
+                      <p className="comments-empty">Ainda não há comentários. Comece a conversa!</p>
+                    )}
+
+                    {comments.map(comment => (
+                      <div key={comment.id} className="comment-item">
+                        <div className="avatar avatar-small">{avatarInitial(comment.author)}</div>
+                        <div className="comment-bubble">
+                          <div className="comment-meta">
+                            <strong>{comment.author}</strong>
+                            <span>{comment.handle}</span>
+                            <span>•</span>
+                            <span>{comment.time}</span>
+                          </div>
+                          <p>{comment.body}</p>
+                        </div>
+                      </div>
+                    ))}
+
+                    {post.id.startsWith("temp-") ? (
+                      <p className="comments-empty">Aguarde a publicação ser salva para comentar.</p>
+                    ) : (
+                      <form onSubmit={event => handleSendComment(event, post.id)} className="comment-form">
+                        <input
+                          type="text"
+                          value={commentDraft}
+                          onChange={event => setCommentDraft(event.target.value)}
+                          placeholder="Escreva um comentário acolhedor..."
+                          maxLength={500}
+                          aria-label="Escrever comentário"
+                        />
+                        <button type="submit" className="primary-btn small" disabled={isSendingComment || !commentDraft.trim()}>
+                          {isSendingComment ? "..." : "Enviar"}
+                        </button>
+                      </form>
+                    )}
+
+                    {commentError && <p className="field-error">{commentError}</p>}
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       </div>
     </div>

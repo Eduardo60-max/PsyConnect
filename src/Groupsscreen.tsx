@@ -53,6 +53,22 @@ export function GroupsScreen({
         </button>
       </section>
 
+      {joinedCount > 0 && (
+      <div className="my-groups-strip">
+        <p className="eyebrow">Meus grupos</p>
+        <div className="my-groups-list">
+          {groups
+            .filter(group => group.joined)
+            .map(group => (
+              <button key={group.id} type="button" className="my-group-btn" onClick={() => onOpenDetail(group.id)}>
+                <span className="chip-dot" style={{ backgroundColor: group.accent }} />
+                {group.name}
+                <span className="my-group-enter">Entrar →</span>
+              </button>
+            ))}
+        </div>
+      </div>
+    )}
       <div className="group-chips" role="tablist" aria-label="Filtrar grupos por tema">
         {categoryChips.map(category => (
           <button

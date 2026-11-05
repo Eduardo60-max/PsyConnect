@@ -17,9 +17,12 @@ import {
 import { GroupsScreen } from "./GroupsScreen";
 import { GroupDetailModal } from "./GroupDetailModal";
 import { GroupCreateModal } from "./GroupCreateModal";
+import { GroupRoom } from "./GroupRoom";
 import { MessagesScreen } from "./MessagesScreen";
 import { AuthGate, type CurrentUser } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";
+import { BreathingExercise } from "./BreathingExercise";
+import { MoodTracker } from "./MoodTracker";
 import { avatarInitial } from "./utils";
 
 type Screen = "home" | "specialists" | "booking" | "groups" | "messages";
@@ -111,7 +114,7 @@ const groups: GoalGroup[] = [
   { id: "all", label: "Todos", description: "Explore tudo", accent: "#4f46e5" },
   { id: "ansiedade", label: "Ansiedade", description: "Respiração e calma", accent: "#8b5cf6" },
   { id: "autoconhecimento", label: "Autoconhecimento", description: "Entender seu ritmo", accent: "#0f766e" },
-  { id: "relacionamentos", label: "Relacionamentos", description: "Límites e comunicação", accent: "#db2777" },
+  { id: "relacionamentos", label: "Relacionamentos", description: "Limites e comunicação", accent: "#db2777" },
   { id: "sono", label: "Sono", description: "Descanso e recuperação", accent: "#f59e0b" },
 ];
 
@@ -180,6 +183,10 @@ function priceToNumber(price: string) {
   return Number(price.replaceAll(/\D/g, ""));
 }
 
+function clockLabel() {
+  return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bahia" });
+}
+
 // Gera uma distância "simulada" mas estável (o mesmo grupo sempre calcula a
 // mesma distância enquanto a localização do usuário não mudar).
 function simulatedDistanceKm(seed: string, lat: number, lng: number) {
@@ -192,6 +199,20 @@ function simulatedDistanceKm(seed: string, lat: number, lng: number) {
 }
 
 export function App() {
+  // ---- Tema ----
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    const saved = window.localStorage.getItem("psyconect_theme");
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("psyconect_theme", theme);
+  }, [theme]);
+
+  // ---- Navegação e agendamento ----
   const [activeScreen, setActiveScreen] = useState<Screen>("home");
   const [selectedExpert, setSelectedExpert] = useState<Expert>(initialExpert);
   const [activeGroup, setActiveGroup] = useState("all");
@@ -208,6 +229,7 @@ export function App() {
     preference: "Online",
   });
 
+  // ---- Usuário ----
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
     if (typeof window === "undefined") return null;
     const stored = window.localStorage.getItem("psyconect_user");
@@ -229,21 +251,23 @@ export function App() {
     }));
   }, [currentUser]);
 
-  // Comunidade / grupos (carregados da API)
+  // ---- Comunidade / grupos (carregados da API) ----
   const [communityGroups, setCommunityGroups] = useState<CommunityGroup[]>([]);
   const [postsByGroup, setPostsByGroup] = useState<Record<string, CommunityFeedPost[]>>({});
   const [completedDaysByGroup, setCompletedDaysByGroup] = useState<Record<string, number[]>>({});
   const [activeCategory, setActiveCategory] = useState("all");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [roomGroupId, setRoomGroupId] = useState<string | null>(null);
+  const [welcomeGroupId, setWelcomeGroupId] = useState<string | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
   const [groupsError, setGroupsError] = useState("");
 
-  // Mensagens (carregadas da API)
+  // ---- Mensagens (carregadas da API) ----
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number>(0);
 
-  // Recomendação por localização (demonstração controlável)
+  // ---- Localização ----
   const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
   const [useRealLocation, setUseRealLocation] = useState(false);
   const [realLocation, setRealLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -275,8 +299,8 @@ export function App() {
     if (!currentUser) return;
 
     fetchGroups()
-      .then(groups => {
-        setCommunityGroups(groups);
+      .then(loaded => {
+        setCommunityGroups(loaded);
         setIsLoadingGroups(false);
       })
       .catch(error => {
@@ -290,34 +314,12 @@ export function App() {
         setActiveConversationId(loaded[0]?.id ?? 0);
       })
       .catch(() => {
-        /* mensagens ficam vazias se a API falhar */
+        // mensagens ficam vazias se a API falhar
       });
   }, [currentUser]);
 
-  const handleToggleGroupJoin = async (groupId: string) => {
-    setCommunityGroups(current =>
-      current.map(group =>
-        group.id === groupId
-          ? { ...group, joined: !group.joined, members: group.joined ? group.members - 1 : group.members + 1 }
-          : group,
-      ),
-    );
-    try {
-      await toggleGroupJoinRequest(groupId);
-    } catch (error) {
-      // reverte se a API falhar
-      setCommunityGroups(current =>
-        current.map(group =>
-          group.id === groupId
-            ? { ...group, joined: !group.joined, members: group.joined ? group.members - 1 : group.members + 1 }
-            : group,
-        ),
-      );
-    }
-  };
-
-  const handleOpenGroupDetail = (groupId: string) => {
-    setSelectedGroupId(groupId);
+  // ---- Grupos: ações ----
+  const loadGroupData = (groupId: string) => {
     if (!postsByGroup[groupId]) {
       fetchGroupPosts(groupId)
         .then(posts => setPostsByGroup(current => ({ ...current, [groupId]: posts })))
@@ -326,7 +328,51 @@ export function App() {
     if (!completedDaysByGroup[groupId]) {
       fetchChallengeDays(groupId)
         .then(days => setCompletedDaysByGroup(current => ({ ...current, [groupId]: days })))
-        .catch(() => {});
+        .catch(() => {
+          // sem dias concluídos se a API falhar
+        });
+    }
+  };
+
+  const handleEnterRoom = (groupId: string, welcome = false) => {
+    setSelectedGroupId(null);
+    setRoomGroupId(groupId);
+    setWelcomeGroupId(welcome ? groupId : null);
+    setActiveScreen("groups");
+    loadGroupData(groupId);
+  };
+
+  const handleOpenGroupDetail = (groupId: string) => {
+    const group = communityGroups.find(item => item.id === groupId);
+    if (group?.joined) {
+      handleEnterRoom(groupId);
+      return;
+    }
+    setSelectedGroupId(groupId);
+    loadGroupData(groupId);
+  };
+
+  const handleToggleGroupJoin = async (groupId: string) => {
+    const wasJoined = communityGroups.find(group => group.id === groupId)?.joined ?? false;
+    if (wasJoined) {
+      if (roomGroupId === groupId) setRoomGroupId(null);
+    } else {
+      handleEnterRoom(groupId, true);
+    }
+
+    const toggle = (current: CommunityGroup[]) =>
+      current.map(group =>
+        group.id === groupId
+          ? { ...group, joined: !group.joined, members: group.joined ? group.members - 1 : group.members + 1 }
+          : group,
+      );
+
+    setCommunityGroups(toggle);
+    try {
+      await toggleGroupJoinRequest(groupId);
+    } catch {
+      // reverte se a API falhar
+      setCommunityGroups(toggle);
     }
   };
 
@@ -339,19 +385,21 @@ export function App() {
     try {
       const days = await toggleChallengeDayRequest(groupId, day);
       setCompletedDaysByGroup(current => ({ ...current, [groupId]: days }));
-    } catch (error) {
+    } catch {
       // mantém o estado otimista se a API falhar
     }
   };
 
   const handleAddGroupPost = async (groupId: string, body: string) => {
+    const authorName = currentUser?.name ?? "Você";
+    const firstName = authorName.trim().split(/\s+/)[0] ?? "voce";
     const optimisticPost: CommunityFeedPost = {
       id: `temp-${Date.now()}`,
-      author: currentUser?.name ?? "Você",
-      handle: "@voce",
+      author: authorName,
+      handle: `@${firstName.toLowerCase()}`,
       group: groupId,
       body,
-      time: "agora",
+      time: clockLabel(),
       likes: 0,
       comments: 0,
       liked: false,
@@ -360,7 +408,7 @@ export function App() {
     try {
       const posts = await addGroupPostRequest(groupId, body);
       setPostsByGroup(current => ({ ...current, [groupId]: posts }));
-    } catch (error) {
+    } catch {
       // mantém o post otimista se a API falhar
     }
   };
@@ -386,7 +434,7 @@ export function App() {
           post.id === postId ? { ...post, liked: result.liked, likes: result.likes } : post,
         ),
       }));
-    } catch (error) {
+    } catch {
       // reverte se a API falhar
       setPostsByGroup(applyToggle);
     }
@@ -403,13 +451,14 @@ export function App() {
     setPostsByGroup(current => ({ ...current, [group.id]: [] }));
     setIsCreateGroupOpen(false);
     try {
-      const groups = await createGroupRequest(group);
-      setCommunityGroups(groups);
-    } catch (error) {
+      const updated = await createGroupRequest(group);
+      setCommunityGroups(updated);
+    } catch {
       // mantém o grupo otimista se a API falhar
     }
   };
 
+  // ---- Mensagens: ações ----
   const handleSendConversationMessage = async (conversationId: number, text: string) => {
     setConversations(current =>
       current.map(conversation =>
@@ -418,7 +467,7 @@ export function App() {
               ...conversation,
               messages: [
                 ...conversation.messages,
-                { id: conversation.messages.length + 1, sender: "me", text, time: "agora" },
+                { id: conversation.messages.length + 1, sender: "me", text, time: clockLabel() },
               ],
             }
           : conversation,
@@ -427,12 +476,15 @@ export function App() {
     try {
       const updated = await sendConversationMessageRequest(conversationId, text);
       setConversations(current => current.map(conversation => (conversation.id === conversationId ? updated : conversation)));
-    } catch (error) {
+    } catch {
       // mantém a mensagem otimista se a API falhar
     }
   };
 
+  // ---- Derivados ----
   const selectedGroup = communityGroups.find(group => group.id === selectedGroupId);
+  const roomGroup = communityGroups.find(group => group.id === roomGroupId && group.joined);
+  const myGroups = communityGroups.filter(group => group.joined);
 
   const suggestedGroups = useMemo(() => {
     const joinedThemes = new Set(communityGroups.filter(group => group.joined).map(group => group.theme));
@@ -463,6 +515,12 @@ export function App() {
     });
   }, [expertQuery, maxPrice]);
 
+  const visiblePosts = useMemo(() => {
+    if (activeGroup === "all") return feedPosts;
+    return feedPosts.filter(post => post.group === activeGroup);
+  }, [activeGroup]);
+
+  // ---- Agendamento: ações ----
   const handleBooking = (expert: Expert) => {
     setSelectedExpert(expert);
     setSelectedSlot(availabilitySlots.includes(expert.availability) ? expert.availability : "");
@@ -492,20 +550,17 @@ export function App() {
     setIsBooked(true);
   };
 
-  const visiblePosts = useMemo(() => {
-    if (activeGroup === "all") return feedPosts;
-    return feedPosts.filter(post => post.group === activeGroup);
-  }, [activeGroup]);
-
-  if (!currentUser) {
-    return <AuthGate onLogin={handleLogin} />;
-  }
-
   const handleLogout = () => {
     window.localStorage.removeItem("psyconect_user");
     setCurrentUser(null);
+    setRoomGroupId(null);
     setActiveScreen("home");
   };
+
+  // Todos os hooks ficam acima deste ponto
+  if (!currentUser) {
+    return <AuthGate onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app-shell">
@@ -524,7 +579,14 @@ export function App() {
           <button type="button" className={activeScreen === "booking" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("booking")}>
             Agendamento
           </button>
-          <button type="button" className={activeScreen === "groups" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("groups")}>
+          <button
+            type="button"
+            className={activeScreen === "groups" ? "nav-link active" : "nav-link"}
+            onClick={() => {
+              setRoomGroupId(null);
+              setActiveScreen("groups");
+            }}
+          >
             Grupos
           </button>
           <button type="button" className={activeScreen === "messages" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("messages")}>
@@ -533,6 +595,15 @@ export function App() {
         </nav>
         <div className="topbar-user">
           <span className="topbar-greeting">Olá, {currentUser.name.split(" ")[0]}</span>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+            aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"}
+            title={theme === "dark" ? "Tema claro" : "Tema escuro"}
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
           <button type="button" className="secondary-btn" onClick={handleLogout}>
             Sair
           </button>
@@ -606,6 +677,29 @@ export function App() {
 
           <aside className="feed-sidebar">
             <CrisisNotice />
+            <BreathingExercise />
+            <MoodTracker email={currentUser.email} />
+
+            {myGroups.length > 0 && (
+              <div className="insight-card">
+                <p className="eyebrow">Meus grupos</p>
+                <h3>Continue de onde parou</h3>
+                <ul className="suggested-group-list">
+                  {myGroups.map(group => (
+                    <li key={group.id}>
+                      <button type="button" className="suggested-group-item" onClick={() => handleEnterRoom(group.id)}>
+                        <span className="chip-dot" style={{ backgroundColor: group.accent }} />
+                        <span>
+                          <strong>{group.name}</strong>
+                          <span className="suggested-group-meta">Entrar no grupo →</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="insight-card">
               <p className="eyebrow">Hoje</p>
               <h3>Seu foco recomendado</h3>
@@ -636,6 +730,7 @@ export function App() {
                         type="button"
                         className="suggested-group-item"
                         onClick={() => {
+                          setRoomGroupId(null);
                           setActiveScreen("groups");
                           handleOpenGroupDetail(group.id);
                         }}
@@ -869,7 +964,7 @@ export function App() {
         </main>
       )}
 
-      {activeScreen === "groups" && !isLoadingGroups && !groupsError && (
+      {activeScreen === "groups" && !isLoadingGroups && !groupsError && !roomGroup && (
         <GroupsScreen
           groups={communityGroups}
           categories={categories}
@@ -879,6 +974,23 @@ export function App() {
           onToggleJoin={handleToggleGroupJoin}
           onOpenDetail={handleOpenGroupDetail}
           onOpenCreate={() => setIsCreateGroupOpen(true)}
+        />
+      )}
+
+      {activeScreen === "groups" && roomGroup && (
+        <GroupRoom
+          group={roomGroup}
+          admin={professionals.find(professional => professional.id === roomGroup.adminId)}
+          category={categories.find(category => category.id === roomGroup.theme)}
+          posts={postsByGroup[roomGroup.id] ?? []}
+          completedDays={completedDaysByGroup[roomGroup.id] ?? []}
+          showWelcome={welcomeGroupId === roomGroup.id}
+          onDismissWelcome={() => setWelcomeGroupId(null)}
+          onToggleDay={handleToggleChallengeDay}
+          onAddPost={handleAddGroupPost}
+          onToggleLike={handleToggleGroupPostLike}
+          onLeave={handleToggleGroupJoin}
+          onBack={() => setRoomGroupId(null)}
         />
       )}
 

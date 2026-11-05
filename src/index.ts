@@ -12,6 +12,8 @@ import {
   toggleGroupJoin,
   togglePostLike,
 } from "./db";
+import { addComment, listComments } from "./comments";
+import { listMoodWeek, normalizeEmail, saveMood } from "./mood";
 
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS ?? "capacitor://localhost,https://localhost")
@@ -130,10 +132,10 @@ const routes = {
       const post = {
         id: `post-${Date.now()}`,
         groupId: req.params.id,
-        author: body.author ?? "Você",
-        handle: body.handle ?? "@voce",
+        author: String(body.author ?? "").trim() || "Você",
+        handle: String(body.handle ?? "").trim() || "@voce",
         body: body.body.trim(),
-        time: "agora",
+        time: currentTimeLabel(),
         likes: 0,
         comments: 0,
       };
@@ -148,6 +150,49 @@ const routes = {
       const result = togglePostLike(req.params.id);
       if (!result) return apiResponse(req, { error: "Post não encontrado." }, { status: 404 });
       return apiResponse(req, { liked: Boolean(result.liked), likes: result.likes });
+    },
+  },
+
+  // ---- Comentários ----
+  "/api/posts/:id/comments": {
+    GET(req: BunRequest<"/api/posts/:id/comments">) {
+      return apiResponse(req, listComments(req.params.id));
+    },
+    async POST(req: BunRequest<"/api/posts/:id/comments">) {
+      const body = await req.json();
+      const text = String(body?.body ?? "").trim();
+      if (!text) return apiResponse(req, { error: "O comentário não pode estar vazio." }, { status: 400 });
+      if (text.length > 500) return apiResponse(req, { error: "O comentário pode ter no máximo 500 caracteres." }, { status: 400 });
+      addComment({
+        id: `comment-${Date.now()}`,
+        postId: req.params.id,
+        author: String(body?.author ?? "").trim() || "Você",
+        handle: String(body?.handle ?? "").trim() || "@voce",
+        body: text,
+        time: currentTimeLabel(),
+      });
+      return apiResponse(req, listComments(req.params.id), { status: 201 });
+    },
+  },
+
+  // ---- Diário de humor ----
+  "/api/mood": {
+    GET(req: Request) {
+      const email = normalizeEmail(new URL(req.url).searchParams.get("email"));
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      return apiResponse(req, listMoodWeek(email));
+    },
+    async POST(req: Request) {
+      const body = await req.json();
+      const email = normalizeEmail(body?.email);
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      const mood = Number(body?.mood);
+      if (!Number.isInteger(mood) || mood < 1 || mood > 5) {
+        return apiResponse(req, { error: "Escolha um humor de 1 a 5." }, { status: 400 });
+      }
+      const note = String(body?.note ?? "").trim().slice(0, 280);
+      saveMood(email, mood, note);
+      return apiResponse(req, listMoodWeek(email), { status: 201 });
     },
   },
 

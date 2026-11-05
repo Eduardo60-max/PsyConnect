@@ -37,6 +37,21 @@ export type FeedPost = {
   liked?: boolean;
 };
 
+export type PostComment = {
+  id: string;
+  postId: string;
+  author: string;
+  handle: string;
+  body: string;
+  time: string;
+};
+
+export type MoodDay = {
+  day: string;
+  mood: number | null;
+  note: string;
+};
+
 export type ConversationMessage = {
   id: number;
   sender: string;
