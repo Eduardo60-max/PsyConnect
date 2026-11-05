@@ -1,4 +1,4 @@
-import { serve } from "bun";
+import { serve, type BunRequest } from "bun";
 import index from "./index.html";
 import {
   addMessage,
@@ -10,6 +10,7 @@ import {
   listPosts,
   toggleChallengeDay,
   toggleGroupJoin,
+  togglePostLike,
 } from "./db";
 
 const allowedOrigins = new Set(
@@ -47,24 +48,32 @@ function apiPreflight(req: Request): Response {
   return new Response(null, { status: 204, headers });
 }
 
+function currentTimeLabel(): string {
+  return new Date().toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Bahia",
+  });
+}
+
 const routes = {
   // Serve index.html for all unmatched routes.
   "/*": index,
 
   "/api/*": {
-    OPTIONS(req) {
+    OPTIONS(req: Request) {
       return apiPreflight(req);
     },
   },
 
   "/api/hello": {
-    async GET(req) {
+    GET(req: Request) {
       return apiResponse(req, {
         message: "Hello, world!",
         method: "GET",
       });
     },
-    async PUT(req) {
+    PUT(req: Request) {
       return apiResponse(req, {
         message: "Hello, world!",
         method: "PUT",
@@ -72,7 +81,7 @@ const routes = {
     },
   },
 
-  "/api/hello/:name": async req => {
+  "/api/hello/:name": (req: BunRequest<"/api/hello/:name">) => {
     const name = req.params.name;
     return apiResponse(req, {
       message: `Hello, ${name}!`,
@@ -81,10 +90,10 @@ const routes = {
 
   // ---- Grupos ----
   "/api/groups": {
-    async GET(req) {
+    GET(req: Request) {
       return apiResponse(req, listGroups());
     },
-    async POST(req) {
+    async POST(req: Request) {
       const body = await req.json();
       if (!body?.id || !body?.name || !body?.description || !body?.theme || !body?.adminId || !body?.accent) {
         return apiResponse(req, { error: "Dados do grupo incompletos." }, { status: 400 });
@@ -104,7 +113,7 @@ const routes = {
   },
 
   "/api/groups/:id/join": {
-    async POST(req) {
+    POST(req: BunRequest<"/api/groups/:id/join">) {
       const result = toggleGroupJoin(req.params.id);
       if (!result) return apiResponse(req, { error: "Grupo não encontrado." }, { status: 404 });
       return apiResponse(req, result);
@@ -112,10 +121,10 @@ const routes = {
   },
 
   "/api/groups/:id/posts": {
-    async GET(req) {
+    GET(req: BunRequest<"/api/groups/:id/posts">) {
       return apiResponse(req, listPosts(req.params.id));
     },
-    async POST(req) {
+    async POST(req: BunRequest<"/api/groups/:id/posts">) {
       const body = await req.json();
       if (!body?.body?.trim()) return apiResponse(req, { error: "O post não pode estar vazio." }, { status: 400 });
       const post = {
@@ -133,8 +142,17 @@ const routes = {
     },
   },
 
+  // ---- Curtidas ----
+  "/api/posts/:id/like": {
+    POST(req: BunRequest<"/api/posts/:id/like">) {
+      const result = togglePostLike(req.params.id);
+      if (!result) return apiResponse(req, { error: "Post não encontrado." }, { status: 404 });
+      return apiResponse(req, { liked: Boolean(result.liked), likes: result.likes });
+    },
+  },
+
   "/api/groups/:id/challenge-days/:day": {
-    async POST(req) {
+    POST(req: BunRequest<"/api/groups/:id/challenge-days/:day">) {
       const day = Number(req.params.day);
       if (!Number.isInteger(day)) return apiResponse(req, { error: "Dia inválido." }, { status: 400 });
       return apiResponse(req, toggleChallengeDay(req.params.id, day));
@@ -142,24 +160,24 @@ const routes = {
   },
 
   "/api/groups/:id/challenge-days": {
-    async GET(req) {
+    GET(req: BunRequest<"/api/groups/:id/challenge-days">) {
       return apiResponse(req, listChallengeDays(req.params.id));
     },
   },
 
   // ---- Mensagens ----
   "/api/conversations": {
-    async GET(req) {
+    GET(req: Request) {
       return apiResponse(req, listConversations());
     },
   },
 
   "/api/conversations/:id/messages": {
-    async POST(req) {
+    async POST(req: BunRequest<"/api/conversations/:id/messages">) {
       const conversationId = Number(req.params.id);
       const body = await req.json();
       if (!body?.text?.trim()) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
-      addMessage(conversationId, "me", body.text.trim(), "agora");
+      addMessage(conversationId, "me", body.text.trim(), currentTimeLabel());
       return apiResponse(req, listConversations().find(conversation => conversation.id === conversationId), { status: 201 });
     },
   },

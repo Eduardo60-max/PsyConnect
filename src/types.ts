@@ -34,6 +34,7 @@ export type FeedPost = {
   time: string;
   likes: number;
   comments: number;
+  liked?: boolean;
 };
 
 export type ConversationMessage = {

@@ -32,6 +32,13 @@ db.run(`
   )
 `);
 
+// Migração: adiciona a coluna "liked" em bancos que já existiam
+try {
+  db.run("ALTER TABLE posts ADD COLUMN liked INTEGER NOT NULL DEFAULT 0");
+} catch {
+  // coluna já existe
+}
+
 db.run(`
   CREATE TABLE IF NOT EXISTS challenge_days (
     groupId TEXT NOT NULL,
@@ -181,6 +188,7 @@ export type DbPost = {
   time: string;
   likes: number;
   comments: number;
+  liked?: number;
 };
 
 export type DbConversation = {
@@ -234,7 +242,7 @@ export function toggleGroupJoin(groupId: string) {
 
 export function listPosts(groupId: string): DbPost[] {
   return db
-    .query("SELECT id, groupId, author, handle, body, time, likes, comments FROM posts WHERE groupId = $groupId ORDER BY createdAt DESC")
+    .query("SELECT id, groupId, author, handle, body, time, likes, comments, liked FROM posts WHERE groupId = $groupId ORDER BY createdAt DESC")
     .all({ $groupId: groupId }) as DbPost[];
 }
 
@@ -253,6 +261,19 @@ export function addPost(post: DbPost) {
     $comments: post.comments,
     $createdAt: Date.now(),
   });
+}
+
+export function togglePostLike(postId: string) {
+  const post = db.query("SELECT liked, likes FROM posts WHERE id = $id").get({ $id: postId }) as { liked: number; likes: number } | null;
+  if (!post) return null;
+  const nextLiked = post.liked ? 0 : 1;
+  const nextLikes = post.liked ? Math.max(0, post.likes - 1) : post.likes + 1;
+  db.prepare("UPDATE posts SET liked = $liked, likes = $likes WHERE id = $id").run({
+    $liked: nextLiked,
+    $likes: nextLikes,
+    $id: postId,
+  });
+  return { liked: nextLiked, likes: nextLikes };
 }
 
 export function listChallengeDays(groupId: string): number[] {

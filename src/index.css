@@ -1077,4 +1077,68 @@ button {
   .expert-card {
     padding: 18px;
   }
+
+  /* Aviso de crise */
+.crisis-notice {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 0.85rem;
+  color: #7c2d12;
+  line-height: 1.45;
+}
+.crisis-notice p {
+  margin: 0;
+}
+.crisis-notice-title {
+  font-weight: 700;
+  margin-bottom: 4px !important;
+}
+
+/* Curtir */
+.like-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.like-btn.liked {
+  color: #db2777;
+  font-weight: 600;
+}
+
+/* Filtros de especialistas */
+.expert-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.expert-filters input,
+.expert-filters select {
+  padding: 10px 14px;
+  border: 1px solid #dbe2f0;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+}
+.expert-filters input {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* Horário selecionado */
+.availability-btn.active {
+  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  color: #fff;
+  border-color: transparent;
+}
+.field-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
 }

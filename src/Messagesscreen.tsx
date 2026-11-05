@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
 import type { Conversation } from "./types";
 import { avatarInitial } from "./utils";
+import { CrisisNotice } from "./CrisisNotice";
 
 type MessagesScreenProps = {
   conversations: Conversation[];
@@ -14,11 +15,11 @@ export function MessagesScreen({
   activeConversationId,
   onSelectConversation,
   onSendMessage,
-}: MessagesScreenProps) {
+}: Readonly<MessagesScreenProps>) {
   const [draft, setDraft] = useState("");
   const activeConversation = conversations.find(conversation => conversation.id === activeConversationId);
 
-  const handleSend = (event: FormEvent) => {
+  const handleSend = (event: SyntheticEvent) => {
     event.preventDefault();
     if (!draft.trim() || !activeConversation) return;
     onSendMessage(activeConversation.id, draft.trim());
@@ -44,10 +45,11 @@ export function MessagesScreen({
             <div className="conversation-item-text">
               <strong>{conversation.name}</strong>
               <span>{conversation.context}</span>
-              <p>{conversation.messages[conversation.messages.length - 1]?.text ?? "Nenhuma mensagem ainda"}</p>
+              <p>{conversation.messages.at(-1)?.text ?? "Nenhuma mensagem ainda"}</p>
             </div>
           </button>
         ))}
+        <CrisisNotice />
       </section>
 
       <section className="chat-panel">
@@ -64,7 +66,7 @@ export function MessagesScreen({
             </div>
 
             <div className="chat-messages">
-              {activeConversation.messages.map((message: { id: number; sender: string; text: string; time: string }) => (
+              {activeConversation.messages.map(message => (
                 <div key={message.id} className={message.sender === "me" ? "chat-bubble mine" : "chat-bubble"}>
                   <p>{message.text}</p>
                   <span>{message.time}</span>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
 import type { Category, CommunityGroup, FeedPost, Professional } from "./types";
 import { avatarInitial } from "./utils";
 
@@ -11,6 +11,7 @@ type GroupDetailModalProps = {
   onToggleDay: (groupId: string, day: number) => void;
   onToggleJoin: (groupId: string) => void;
   onAddPost: (groupId: string, body: string) => void;
+  onToggleLike: (groupId: string, postId: string) => void;
   onClose: () => void;
 };
 
@@ -23,11 +24,12 @@ export function GroupDetailModal({
   onToggleDay,
   onToggleJoin,
   onAddPost,
+  onToggleLike,
   onClose,
-}: GroupDetailModalProps) {
+}: Readonly<GroupDetailModalProps>) {
   const [draft, setDraft] = useState("");
 
-  const handlePost = (event: FormEvent) => {
+  const handlePost = (event: SyntheticEvent) => {
     event.preventDefault();
     if (!draft.trim()) return;
     onAddPost(group.id, draft.trim());
@@ -126,7 +128,7 @@ export function GroupDetailModal({
           {posts.map(post => (
             <article key={post.id} className="feed-card feed-card-compact">
               <div className="feed-card-top">
-                <div className="avatar">{post.author.charAt(0)}</div>
+                <div className="avatar">{avatarInitial(post.author)}</div>
                 <div>
                   <div className="feed-author-row">
                     <strong>{post.author}</strong>
@@ -138,7 +140,15 @@ export function GroupDetailModal({
               </div>
               <p className="feed-body">{post.body}</p>
               <div className="feed-actions">
-                <span>♡ {post.likes}</span>
+                <button
+                  type="button"
+                  className={post.liked ? "like-btn liked" : "like-btn"}
+                  onClick={() => onToggleLike(group.id, post.id)}
+                  aria-pressed={Boolean(post.liked)}
+                  aria-label={post.liked ? "Remover curtida" : "Curtir"}
+                >
+                  {post.liked ? "♥" : "♡"} {post.likes}
+                </button>
                 <span>💬 {post.comments}</span>
               </div>
             </article>

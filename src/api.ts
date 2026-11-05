@@ -70,15 +70,27 @@ export async function toggleGroupJoinRequest(groupId: string): Promise<{ joined:
   return { joined: Boolean(result.joined), members: result.members };
 }
 
+type RawPost = Omit<FeedPost, "liked"> & { liked?: number };
+
+function toPost(raw: RawPost): FeedPost {
+  return { ...raw, liked: Boolean(raw.liked) };
+}
+
 export async function fetchGroupPosts(groupId: string): Promise<FeedPost[]> {
-  return request<FeedPost[]>(`/api/groups/${groupId}/posts`);
+  const raw = await request<RawPost[]>(`/api/groups/${groupId}/posts`);
+  return raw.map(toPost);
 }
 
 export async function addGroupPostRequest(groupId: string, body: string): Promise<FeedPost[]> {
-  return request<FeedPost[]>(`/api/groups/${groupId}/posts`, {
+  const raw = await request<RawPost[]>(`/api/groups/${groupId}/posts`, {
     method: "POST",
     body: JSON.stringify({ body }),
   });
+  return raw.map(toPost);
+}
+
+export async function togglePostLikeRequest(postId: string): Promise<{ liked: boolean; likes: number }> {
+  return request<{ liked: boolean; likes: number }>(`/api/posts/${postId}/like`, { method: "POST" });
 }
 
 export async function toggleChallengeDayRequest(groupId: string, day: number): Promise<number[]> {

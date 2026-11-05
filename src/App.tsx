@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import "./index.css";
 import type { CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
 import { categories, professionals } from "./data";
@@ -12,12 +12,15 @@ import {
   sendConversationMessageRequest,
   toggleChallengeDayRequest,
   toggleGroupJoinRequest,
+  togglePostLikeRequest,
 } from "./api";
 import { GroupsScreen } from "./GroupsScreen";
 import { GroupDetailModal } from "./GroupDetailModal";
 import { GroupCreateModal } from "./GroupCreateModal";
 import { MessagesScreen } from "./MessagesScreen";
 import { AuthGate, type CurrentUser } from "./AuthGate";
+import { CrisisNotice } from "./CrisisNotice";
+import { avatarInitial } from "./utils";
 
 type Screen = "home" | "specialists" | "booking" | "groups" | "messages";
 
@@ -94,6 +97,16 @@ const experts: Expert[] = [
   },
 ];
 
+const availabilitySlots = ["Hoje • 16:00", "Hoje • 18:30", "Amanhã • 09:30", "Quarta • 14:00"];
+
+// Qual especialista indicar para cada tema do feed
+const supportExpertByTheme: Record<string, number> = {
+  ansiedade: 1,
+  relacionamentos: 2,
+  autoconhecimento: 3,
+  sono: 1,
+};
+
 const groups: GoalGroup[] = [
   { id: "all", label: "Todos", description: "Explore tudo", accent: "#4f46e5" },
   { id: "ansiedade", label: "Ansiedade", description: "Respiração e calma", accent: "#8b5cf6" },
@@ -104,8 +117,10 @@ const groups: GoalGroup[] = [
 
 // Cidades usadas para demonstrar a recomendação por localização sem depender
 // de o navegador conceder permissão de GPS ao vivo durante a apresentação.
+const defaultLocation = { id: "salvador", label: "Salvador, BA", lat: -12.9777, lng: -38.5016 };
+
 const demoLocations = [
-  { id: "salvador", label: "Salvador, BA", lat: -12.9777, lng: -38.5016 },
+  defaultLocation,
   { id: "recife", label: "Recife, PE", lat: -8.0476, lng: -34.877 },
   { id: "sao-paulo", label: "São Paulo, SP", lat: -23.5505, lng: -46.6333 },
   { id: "rio-de-janeiro", label: "Rio de Janeiro, RJ", lat: -22.9068, lng: -43.1729 },
@@ -155,7 +170,15 @@ const feedPosts: FeedPost[] = [
   },
 ];
 
-const initialExpert: Expert = experts[0] ?? experts[1] ?? experts[2];
+const initialExpert = experts[0] as Expert;
+
+function normalizeText(text: string) {
+  return text.toLowerCase().normalize("NFD").replaceAll(/[\u0300-\u036f]/g, "");
+}
+
+function priceToNumber(price: string) {
+  return Number(price.replaceAll(/\D/g, ""));
+}
 
 // Gera uma distância "simulada" mas estável (o mesmo grupo sempre calcula a
 // mesma distância enquanto a localização do usuário não mudar).
@@ -163,7 +186,7 @@ function simulatedDistanceKm(seed: string, lat: number, lng: number) {
   const base = `${seed}-${lat.toFixed(2)}-${lng.toFixed(2)}`;
   let hash = 0;
   for (let i = 0; i < base.length; i++) {
-    hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
+    hash = (hash * 31 + (base.codePointAt(i) ?? 0)) >>> 0;
   }
   return Number((0.4 + (hash % 940) / 100).toFixed(1));
 }
@@ -173,6 +196,11 @@ export function App() {
   const [selectedExpert, setSelectedExpert] = useState<Expert>(initialExpert);
   const [activeGroup, setActiveGroup] = useState("all");
   const [isBooked, setIsBooked] = useState(false);
+  const [selectedSlot, setSelectedSlot] = useState("");
+  const [slotError, setSlotError] = useState(false);
+  const [expertQuery, setExpertQuery] = useState("");
+  const [maxPrice, setMaxPrice] = useState("all");
+  const [likedHomePosts, setLikedHomePosts] = useState<number[]>([]);
   const [formData, setFormData] = useState<FormState>({
     name: "",
     email: "",
@@ -191,6 +219,16 @@ export function App() {
     setCurrentUser(user);
   };
 
+  // Pré-preenche o agendamento com os dados de quem está logado
+  useEffect(() => {
+    if (!currentUser) return;
+    setFormData(current => ({
+      ...current,
+      name: currentUser.name,
+      email: currentUser.email,
+    }));
+  }, [currentUser]);
+
   // Comunidade / grupos (carregados da API)
   const [communityGroups, setCommunityGroups] = useState<CommunityGroup[]>([]);
   const [postsByGroup, setPostsByGroup] = useState<Record<string, CommunityFeedPost[]>>({});
@@ -206,7 +244,7 @@ export function App() {
   const [activeConversationId, setActiveConversationId] = useState<number>(0);
 
   // Recomendação por localização (demonstração controlável)
-  const [selectedLocationId, setSelectedLocationId] = useState(demoLocations[0].id);
+  const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
   const [useRealLocation, setUseRealLocation] = useState(false);
   const [realLocation, setRealLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "granted" | "denied">("idle");
@@ -231,7 +269,7 @@ export function App() {
   const effectiveLocation =
     useRealLocation && realLocation
       ? realLocation
-      : (demoLocations.find(location => location.id === selectedLocationId) ?? demoLocations[0]);
+      : (demoLocations.find(location => location.id === selectedLocationId) ?? defaultLocation);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -278,7 +316,7 @@ export function App() {
     }
   };
 
-  const handleOpenGroupDetail = async (groupId: string) => {
+  const handleOpenGroupDetail = (groupId: string) => {
     setSelectedGroupId(groupId);
     if (!postsByGroup[groupId]) {
       fetchGroupPosts(groupId)
@@ -316,6 +354,7 @@ export function App() {
       time: "agora",
       likes: 0,
       comments: 0,
+      liked: false,
     };
     setPostsByGroup(current => ({ ...current, [groupId]: [optimisticPost, ...(current[groupId] ?? [])] }));
     try {
@@ -324,6 +363,39 @@ export function App() {
     } catch (error) {
       // mantém o post otimista se a API falhar
     }
+  };
+
+  const handleToggleGroupPostLike = async (groupId: string, postId: string) => {
+    const applyToggle = (current: Record<string, CommunityFeedPost[]>) => ({
+      ...current,
+      [groupId]: (current[groupId] ?? []).map(post =>
+        post.id === postId
+          ? { ...post, liked: !post.liked, likes: post.liked ? Math.max(0, post.likes - 1) : post.likes + 1 }
+          : post,
+      ),
+    });
+
+    setPostsByGroup(applyToggle);
+    if (postId.startsWith("temp-")) return;
+
+    try {
+      const result = await togglePostLikeRequest(postId);
+      setPostsByGroup(current => ({
+        ...current,
+        [groupId]: (current[groupId] ?? []).map(post =>
+          post.id === postId ? { ...post, liked: result.liked, likes: result.likes } : post,
+        ),
+      }));
+    } catch (error) {
+      // reverte se a API falhar
+      setPostsByGroup(applyToggle);
+    }
+  };
+
+  const handleToggleHomePostLike = (postId: number) => {
+    setLikedHomePosts(current =>
+      current.includes(postId) ? current.filter(id => id !== postId) : [...current, postId],
+    );
   };
 
   const handleCreateGroup = async (group: CommunityGroup) => {
@@ -381,14 +453,42 @@ export function App() {
       .slice(0, 5);
   }, [communityGroups, effectiveLocation]);
 
+  const filteredExperts = useMemo(() => {
+    const query = normalizeText(expertQuery.trim());
+    const limit = maxPrice === "all" ? Infinity : Number(maxPrice);
+    return experts.filter(expert => {
+      const matchesText =
+        !query || normalizeText(`${expert.name} ${expert.role} ${expert.specialty}`).includes(query);
+      return matchesText && priceToNumber(expert.price) <= limit;
+    });
+  }, [expertQuery, maxPrice]);
+
   const handleBooking = (expert: Expert) => {
     setSelectedExpert(expert);
+    setSelectedSlot(availabilitySlots.includes(expert.availability) ? expert.availability : "");
+    setSlotError(false);
     setIsBooked(false);
     setActiveScreen("booking");
   };
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleFindSupport = (themeId: string) => {
+    const expertId = supportExpertByTheme[themeId] ?? 1;
+    handleBooking(experts.find(expert => expert.id === expertId) ?? initialExpert);
+  };
+
+  const handleSelectSlot = (slot: string) => {
+    setSelectedSlot(slot);
+    setSlotError(false);
+    setIsBooked(false);
+  };
+
+  const handleSubmit = (event: SyntheticEvent) => {
     event.preventDefault();
+    if (!selectedSlot) {
+      setSlotError(true);
+      return;
+    }
+    setSlotError(false);
     setIsBooked(true);
   };
 
@@ -466,34 +566,46 @@ export function App() {
             </div>
 
             <div className="feed-list">
-              {visiblePosts.map(post => (
-                <article key={post.id} className="feed-card">
-                  <div className="feed-card-top">
-                    <div className="avatar">{post.author.charAt(0)}</div>
-                    <div>
-                      <div className="feed-author-row">
-                        <strong>{post.author}</strong>
-                        <span>{post.handle}</span>
-                        <span>•</span>
-                        <span>{post.time}</span>
+              {visiblePosts.map(post => {
+                const liked = likedHomePosts.includes(post.id);
+                return (
+                  <article key={post.id} className="feed-card">
+                    <div className="feed-card-top">
+                      <div className="avatar">{avatarInitial(post.author)}</div>
+                      <div>
+                        <div className="feed-author-row">
+                          <strong>{post.author}</strong>
+                          <span>{post.handle}</span>
+                          <span>•</span>
+                          <span>{post.time}</span>
+                        </div>
+                        <p className="feed-group">{groups.find(group => group.id === post.group)?.label}</p>
                       </div>
-                      <p className="feed-group">{groups.find(group => group.id === post.group)?.label}</p>
                     </div>
-                  </div>
-                  <p className="feed-body">{post.body}</p>
-                  <div className="feed-actions">
-                    <span>♡ {post.likes}</span>
-                    <span>💬 {post.comments}</span>
-                    <button type="button" className="text-link" onClick={() => setActiveScreen("specialists")}>
-                      Encontrar apoio
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    <p className="feed-body">{post.body}</p>
+                    <div className="feed-actions">
+                      <button
+                        type="button"
+                        className={liked ? "like-btn liked" : "like-btn"}
+                        onClick={() => handleToggleHomePostLike(post.id)}
+                        aria-pressed={liked}
+                        aria-label={liked ? "Remover curtida" : "Curtir"}
+                      >
+                        {liked ? "♥" : "♡"} {Number(post.likes) + (liked ? 1 : 0)}
+                      </button>
+                      <span>💬 {post.comments}</span>
+                      <button type="button" className="text-link" onClick={() => handleFindSupport(post.group)}>
+                        Encontrar apoio
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </section>
 
           <aside className="feed-sidebar">
+            <CrisisNotice />
             <div className="insight-card">
               <p className="eyebrow">Hoje</p>
               <h3>Seu foco recomendado</h3>
@@ -603,12 +715,32 @@ export function App() {
             </button>
           </section>
 
+          <div className="expert-filters">
+            <input
+              type="search"
+              value={expertQuery}
+              onChange={event => setExpertQuery(event.target.value)}
+              placeholder="Buscar por nome ou especialidade"
+              aria-label="Buscar especialista"
+            />
+            <select value={maxPrice} onChange={event => setMaxPrice(event.target.value)} aria-label="Filtrar por preço">
+              <option value="all">Qualquer preço</option>
+              <option value="160">Até R$ 160</option>
+              <option value="180">Até R$ 180</option>
+              <option value="200">Até R$ 200</option>
+            </select>
+          </div>
+
+          {filteredExperts.length === 0 && (
+            <p className="empty-state">Nenhum especialista encontrado com esses filtros.</p>
+          )}
+
           <div className="expert-grid">
-            {experts.map(expert => (
+            {filteredExperts.map(expert => (
               <article key={expert.id} className="expert-card">
                 <div className="expert-top">
                   <div className="avatar" style={{ backgroundColor: expert.accent }}>
-                    {expert.name.charAt(0)}
+                    {avatarInitial(expert.name)}
                   </div>
                   <div>
                     <h3>{expert.name}</h3>
@@ -650,17 +782,19 @@ export function App() {
               </div>
             </div>
             <div className="availability-list">
-              {[
-                "Hoje • 16:00",
-                "Hoje • 18:30",
-                "Amanhã • 09:30",
-                "Quarta • 14:00",
-              ].map(slot => (
-                <button key={slot} type="button" className="availability-btn">
+              {availabilitySlots.map(slot => (
+                <button
+                  key={slot}
+                  type="button"
+                  className={selectedSlot === slot ? "availability-btn active" : "availability-btn"}
+                  onClick={() => handleSelectSlot(slot)}
+                  aria-pressed={selectedSlot === slot}
+                >
                   {slot}
                 </button>
               ))}
             </div>
+            {slotError && <p className="field-error">Escolha um horário para continuar.</p>}
           </section>
 
           <section className="booking-form-card">
@@ -713,7 +847,10 @@ export function App() {
             {isBooked && (
               <div className="success-box">
                 <strong>Agendamento confirmado!</strong>
-                <p>Você receberá um e-mail com o link da sessão e detalhes da consulta.</p>
+                <p>
+                  {selectedExpert.name} • {selectedSlot} ({formData.preference}). Você receberá um e-mail com o link
+                  da sessão e detalhes da consulta.
+                </p>
               </div>
             )}
           </section>
@@ -764,6 +901,7 @@ export function App() {
           onToggleDay={handleToggleChallengeDay}
           onToggleJoin={handleToggleGroupJoin}
           onAddPost={handleAddGroupPost}
+          onToggleLike={handleToggleGroupPostLike}
           onClose={() => setSelectedGroupId(null)}
         />
       )}
