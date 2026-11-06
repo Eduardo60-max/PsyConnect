@@ -8,12 +8,15 @@ import {
   listConversations,
   listGroups,
   listPosts,
+  listRecentReplies,
+  resetDatabase,
   toggleChallengeDay,
   toggleGroupJoin,
   togglePostLike,
 } from "./db";
 import { addComment, listComments } from "./comments";
 import { listMoodWeek, normalizeEmail, saveMood } from "./mood";
+import { pickReply, replyDelayMs } from "./chatbot";
 
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS ?? "capacitor://localhost,https://localhost")
@@ -58,6 +61,22 @@ function currentTimeLabel(): string {
   });
 }
 
+// ---- Respostas automáticas dos profissionais ----
+const pendingReplies = new Set<ReturnType<typeof setTimeout>>();
+
+function scheduleReply(conversationId: number, text: string, delay: number) {
+  const timer = setTimeout(() => {
+    pendingReplies.delete(timer);
+    try {
+      const recent = listRecentReplies(conversationId, 4);
+      addMessage(conversationId, "them", pickReply(conversationId, text, recent), currentTimeLabel());
+    } catch (error) {
+      console.error("Falha ao gravar a resposta automática:", error);
+    }
+  }, delay);
+  pendingReplies.add(timer);
+}
+
 const routes = {
   // Serve index.html for all unmatched routes.
   "/*": index,
@@ -88,6 +107,19 @@ const routes = {
     return apiResponse(req, {
       message: `Hello, ${name}!`,
     });
+  },
+
+  // ---- Modo demonstração ----
+  "/api/demo/reset": {
+    POST(req: Request) {
+      if (process.env.DISABLE_DEMO_RESET === "1") {
+        return apiResponse(req, { error: "A restauração de dados está desativada." }, { status: 403 });
+      }
+      for (const timer of pendingReplies) clearTimeout(timer);
+      pendingReplies.clear();
+      resetDatabase();
+      return apiResponse(req, { ok: true });
+    },
   },
 
   // ---- Grupos ----
@@ -221,9 +253,20 @@ const routes = {
     async POST(req: BunRequest<"/api/conversations/:id/messages">) {
       const conversationId = Number(req.params.id);
       const body = await req.json();
-      if (!body?.text?.trim()) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
-      addMessage(conversationId, "me", body.text.trim(), currentTimeLabel());
-      return apiResponse(req, listConversations().find(conversation => conversation.id === conversationId), { status: 201 });
+      const text = String(body?.text ?? "").trim();
+      if (!text) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
+      if (text.length > 1000) return apiResponse(req, { error: "A mensagem pode ter no máximo 1000 caracteres." }, { status: 400 });
+      if (!listConversations().some(conversation => conversation.id === conversationId)) {
+        return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
+      }
+
+      addMessage(conversationId, "me", text, currentTimeLabel());
+
+      const delay = replyDelayMs(text);
+      scheduleReply(conversationId, text, delay);
+
+      const conversation = listConversations().find(item => item.id === conversationId);
+      return apiResponse(req, { conversation, replyDelayMs: delay }, { status: 201 });
     },
   },
 };

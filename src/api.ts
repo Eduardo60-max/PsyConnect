@@ -18,6 +18,11 @@ type RawGroup = {
 
 type RawPost = Omit<FeedPost, "liked"> & { liked?: number };
 
+export type SendMessageResult = {
+  conversation: Conversation;
+  replyDelayMs: number;
+};
+
 function toGroup(raw: RawGroup): CommunityGroup {
   return {
     id: raw.id,
@@ -144,9 +149,13 @@ export async function fetchConversations(): Promise<Conversation[]> {
   return request<Conversation[]>("/api/conversations");
 }
 
-export async function sendConversationMessageRequest(conversationId: number, text: string): Promise<Conversation> {
-  return request<Conversation>(`/api/conversations/${conversationId}/messages`, {
+export async function sendConversationMessageRequest(conversationId: number, text: string): Promise<SendMessageResult> {
+  return request<SendMessageResult>(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify({ text }),
   });
+}
+
+export async function resetDemoRequest(): Promise<void> {
+  await request<{ ok: boolean }>("/api/demo/reset", { method: "POST" });
 }

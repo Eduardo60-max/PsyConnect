@@ -1536,6 +1536,162 @@ button {
   font-size: 0.8rem;
   opacity: 0.8;
 }
+
+/* Chat: digitando, não lidas e rolagem */
+.chat-messages {
+  max-height: 420px;
+}
+
+.conversation-item .conversation-item-text {
+  flex: 1;
+}
+
+.chat-bubble.typing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.typing-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.typing-preview {
+  color: var(--accent) !important;
+  font-style: italic;
+}
+
+.unread-preview {
+  color: var(--text-strong) !important;
+  font-weight: 700;
+}
+
+.unread-badge,
+.nav-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--like);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.nav-badge {
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 0.68rem;
+}
+
+.chat-note {
+  margin: 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i {
+    animation: none;
+  }
+}
+
+/* Modo demonstração */
+.demo-footer {
+  margin-top: 32px;
+  text-align: center;
+}
+
+.demo-reset-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-decoration: underline;
+  opacity: 0.7;
+}
+
+.demo-reset-btn:hover {
+  opacity: 1;
+}
+
+/* Prévia da conversa: nunca estica o layout */
+.messages-layout {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+
+.conversation-list {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversation-item {
+  width: 100%;
+  min-width: 0;
+}
+
+.conversation-item .conversation-item-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversation-item-text strong,
+.conversation-item-text span,
+.conversation-item-text p {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* No celular o grid vira uma coluna só */
+@media (max-width: 900px) {
+  .messages-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 640px) {
   .app-shell {
     padding: max(12px, env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));

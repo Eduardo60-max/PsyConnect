@@ -67,10 +67,8 @@ db.run(`
   )
 `);
 
-// ---- Seed (only runs once, when the tables are empty) ----
-const groupCount = db.query("SELECT COUNT(*) as count FROM groups").get() as { count: number };
-
-if (groupCount.count === 0) {
+// ---- Seed ----
+function seedDatabase() {
   const insertGroup = db.prepare(
     `INSERT INTO groups (id, name, description, theme, adminId, members, joined, isTemporary, durationDays, accent)
      VALUES ($id, $name, $description, $theme, $adminId, $members, $joined, $isTemporary, $durationDays, $accent)`,
@@ -155,14 +153,39 @@ if (groupCount.count === 0) {
     { conversationId: 3, sender: "them", text: "Bem-vinda ao desafio de reeducação alimentar! Qualquer dúvida, me chame por aqui.", time: "2 d" },
   ];
 
+  let offset = 0;
   for (const message of seedMessages)
     insertMessage.run({
       $conversationId: message.conversationId,
       $sender: message.sender,
       $text: message.text,
       $time: message.time,
-      $createdAt: Date.now(),
+      $createdAt: Date.now() + offset++,
     });
+}
+
+const groupCount = db.query("SELECT COUNT(*) as count FROM groups").get() as { count: number };
+if (groupCount.count === 0) seedDatabase();
+
+// Restaura o banco para o estado inicial (usado pelo "Modo demonstração")
+export function resetDatabase() {
+  const wipe = db.transaction(() => {
+    const tables = ["groups", "posts", "challenge_days", "conversations", "messages", "comments", "mood_entries"];
+    for (const table of tables) {
+      try {
+        db.run(`DELETE FROM ${table}`);
+      } catch {
+        // a tabela ainda não existe, nada a limpar
+      }
+    }
+    try {
+      db.run("DELETE FROM sqlite_sequence WHERE name = 'messages'");
+    } catch {
+      // sem contador para reiniciar
+    }
+    seedDatabase();
+  });
+  wipe();
 }
 
 // ---- Helpers ----
@@ -293,11 +316,19 @@ export function toggleChallengeDay(groupId: string, day: number) {
 
 export function listConversations(): (DbConversation & { messages: DbMessage[] })[] {
   const conversations = db.query("SELECT id, name, context, accent FROM conversations").all() as DbConversation[];
-  const messages = db.query("SELECT id, conversationId, sender, text, time FROM messages ORDER BY createdAt ASC").all() as DbMessage[];
+  const messages = db.query("SELECT id, conversationId, sender, text, time FROM messages ORDER BY createdAt ASC, id ASC").all() as DbMessage[];
   return conversations.map(conversation => ({
     ...conversation,
     messages: messages.filter(message => message.conversationId === conversation.id),
   }));
+}
+
+// Últimas respostas do profissional (para não repetir a mesma frase)
+export function listRecentReplies(conversationId: number, limit: number): string[] {
+  const rows = db
+    .query("SELECT text FROM messages WHERE conversationId = $conversationId AND sender = 'them' ORDER BY createdAt DESC, id DESC LIMIT $limit")
+    .all({ $conversationId: conversationId, $limit: limit }) as { text: string }[];
+  return rows.map(row => row.text);
 }
 
 export function addMessage(conversationId: number, sender: string, text: string, time: string) {

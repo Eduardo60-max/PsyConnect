@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import "./index.css";
 import type { CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
 import { categories, professionals } from "./data";
@@ -23,6 +23,7 @@ import { AuthGate, type CurrentUser } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";
 import { BreathingExercise } from "./BreathingExercise";
 import { MoodTracker } from "./MoodTracker";
+import { DemoReset } from "./DemoReset";
 import { avatarInitial } from "./utils";
 
 type Screen = "home" | "specialists" | "booking" | "groups" | "messages";
@@ -266,6 +267,22 @@ export function App() {
   // ---- Mensagens (carregadas da API) ----
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number>(0);
+  const [typingIds, setTypingIds] = useState<number[]>([]);
+  const [unreadIds, setUnreadIds] = useState<number[]>([]);
+
+  // Guarda onde o usuário está agora, para decidir se uma resposta nova vira "não lida"
+  const viewRef = useRef({ screen: activeScreen, conversationId: activeConversationId });
+  useEffect(() => {
+    viewRef.current = { screen: activeScreen, conversationId: activeConversationId };
+  }, [activeScreen, activeConversationId]);
+
+  // Ao abrir uma conversa, ela deixa de ser "não lida"
+  useEffect(() => {
+    if (activeScreen !== "messages" || !activeConversationId) return;
+    setUnreadIds(current =>
+      current.includes(activeConversationId) ? current.filter(id => id !== activeConversationId) : current,
+    );
+  }, [activeScreen, activeConversationId]);
 
   // ---- Localização ----
   const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
@@ -459,6 +476,34 @@ export function App() {
   };
 
   // ---- Mensagens: ações ----
+  const stopTyping = (conversationId: number) => {
+    setTypingIds(current => current.filter(id => id !== conversationId));
+  };
+
+  // Busca a conversa até a resposta do profissional chegar (tenta algumas vezes)
+  const waitForReply = (conversationId: number, knownLength: number, attempt = 0) => {
+    fetchConversations()
+      .then(loaded => {
+        const conversation = loaded.find(item => item.id === conversationId);
+        const arrived = (conversation?.messages.length ?? 0) > knownLength;
+
+        if (!arrived && attempt < 3) {
+          window.setTimeout(() => waitForReply(conversationId, knownLength, attempt + 1), 1000);
+          return;
+        }
+
+        setConversations(loaded);
+        stopTyping(conversationId);
+
+        const view = viewRef.current;
+        const isViewing = view.screen === "messages" && view.conversationId === conversationId;
+        if (arrived && !isViewing) {
+          setUnreadIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
+        }
+      })
+      .catch(() => stopTyping(conversationId));
+  };
+
   const handleSendConversationMessage = async (conversationId: number, text: string) => {
     setConversations(current =>
       current.map(conversation =>
@@ -474,8 +519,10 @@ export function App() {
       ),
     );
     try {
-      const updated = await sendConversationMessageRequest(conversationId, text);
-      setConversations(current => current.map(conversation => (conversation.id === conversationId ? updated : conversation)));
+      const { conversation, replyDelayMs } = await sendConversationMessageRequest(conversationId, text);
+      setConversations(current => current.map(item => (item.id === conversationId ? conversation : item)));
+      setTypingIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
+      window.setTimeout(() => waitForReply(conversationId, conversation.messages.length), replyDelayMs + 300);
     } catch {
       // mantém a mensagem otimista se a API falhar
     }
@@ -591,6 +638,7 @@ export function App() {
           </button>
           <button type="button" className={activeScreen === "messages" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("messages")}>
             Mensagens
+            {unreadIds.length > 0 && <span className="nav-badge">{unreadIds.length}</span>}
           </button>
         </nav>
         <div className="topbar-user">
@@ -998,6 +1046,8 @@ export function App() {
         <MessagesScreen
           conversations={conversations}
           activeConversationId={activeConversationId}
+          typingIds={typingIds}
+          unreadIds={unreadIds}
           onSelectConversation={setActiveConversationId}
           onSendMessage={handleSendConversationMessage}
         />
@@ -1026,6 +1076,8 @@ export function App() {
           onClose={() => setIsCreateGroupOpen(false)}
         />
       )}
+
+      <DemoReset />
     </div>
   );
 }
