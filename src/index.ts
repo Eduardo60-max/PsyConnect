@@ -16,6 +16,7 @@ import {
 } from "./db";
 import { addComment, listComments } from "./comments";
 import { listMoodWeek, normalizeEmail, saveMood } from "./mood";
+import { cancelBooking, createBooking, listBookings, rescheduleBooking, resetBookings } from "./bookings";
 import { pickReply, replyDelayMs } from "./chatbot";
 
 const allowedOrigins = new Set(
@@ -59,6 +60,10 @@ function currentTimeLabel(): string {
     minute: "2-digit",
     timeZone: "America/Bahia",
   });
+}
+
+function cleanText(value: unknown, max: number): string {
+  return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
 // ---- Respostas automáticas dos profissionais ----
@@ -118,6 +123,7 @@ const routes = {
       for (const timer of pendingReplies) clearTimeout(timer);
       pendingReplies.clear();
       resetDatabase();
+      resetBookings();
       return apiResponse(req, { ok: true });
     },
   },
@@ -225,6 +231,65 @@ const routes = {
       const note = String(body?.note ?? "").trim().slice(0, 280);
       saveMood(email, mood, note);
       return apiResponse(req, listMoodWeek(email), { status: 201 });
+    },
+  },
+
+  // ---- Agendamentos ----
+  "/api/bookings": {
+    GET(req: Request) {
+      const email = normalizeEmail(new URL(req.url).searchParams.get("email"));
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      return apiResponse(req, listBookings(email));
+    },
+    async POST(req: Request) {
+      const body = await req.json();
+      const email = normalizeEmail(body?.email);
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+
+      const expertId = Number(body?.expertId);
+      const expertName = cleanText(body?.expertName, 80);
+      const reason = cleanText(body?.reason, 500);
+      if (!Number.isInteger(expertId) || !expertName) {
+        return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      }
+      if (!reason) return apiResponse(req, { error: "Conte o motivo da sessão." }, { status: 400 });
+
+      const failure = createBooking({
+        email,
+        expertId,
+        expertName,
+        expertRole: cleanText(body?.expertRole, 80),
+        specialty: cleanText(body?.specialty, 80),
+        price: cleanText(body?.price, 20),
+        accent: cleanText(body?.accent, 20) || "#7c3aed",
+        slot: cleanText(body?.slot, 40),
+        preference: cleanText(body?.preference, 20),
+        reason,
+      });
+      if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+      return apiResponse(req, listBookings(email), { status: 201 });
+    },
+  },
+
+  "/api/bookings/:id/cancel": {
+    async POST(req: BunRequest<"/api/bookings/:id/cancel">) {
+      const body = await req.json();
+      const email = normalizeEmail(body?.email);
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      const failure = cancelBooking(email, req.params.id);
+      if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+      return apiResponse(req, listBookings(email));
+    },
+  },
+
+  "/api/bookings/:id/reschedule": {
+    async POST(req: BunRequest<"/api/bookings/:id/reschedule">) {
+      const body = await req.json();
+      const email = normalizeEmail(body?.email);
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      const failure = rescheduleBooking(email, req.params.id, cleanText(body?.slot, 40));
+      if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+      return apiResponse(req, listBookings(email));
     },
   },
 

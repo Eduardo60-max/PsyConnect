@@ -1,4 +1,4 @@
-import type { CommunityGroup, Conversation, FeedPost, MoodDay, PostComment } from "./types";
+import type { Booking, CommunityGroup, Conversation, FeedPost, MoodDay, PostComment } from "./types";
 import { Capacitor } from "@capacitor/core";
 
 const API_BASE_URL = (typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__).replace(/\/+$/, "");
@@ -22,6 +22,8 @@ export type SendMessageResult = {
   conversation: Conversation;
   replyDelayMs: number;
 };
+
+export type NewBookingPayload = Omit<Booking, "id" | "status" | "createdAt">;
 
 function toGroup(raw: RawGroup): CommunityGroup {
   return {
@@ -134,6 +136,31 @@ export async function saveMoodRequest(email: string, mood: number, note: string)
   return request<MoodDay[]>("/api/mood", {
     method: "POST",
     body: JSON.stringify({ email, mood, note }),
+  });
+}
+
+export async function fetchBookings(email: string): Promise<Booking[]> {
+  return request<Booking[]>(`/api/bookings?email=${encodeURIComponent(email)}`);
+}
+
+export async function createBookingRequest(email: string, payload: NewBookingPayload): Promise<Booking[]> {
+  return request<Booking[]>("/api/bookings", {
+    method: "POST",
+    body: JSON.stringify({ email, ...payload }),
+  });
+}
+
+export async function cancelBookingRequest(email: string, id: string): Promise<Booking[]> {
+  return request<Booking[]>(`/api/bookings/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function rescheduleBookingRequest(email: string, id: string, slot: string): Promise<Booking[]> {
+  return request<Booking[]>(`/api/bookings/${id}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify({ email, slot }),
   });
 }
 

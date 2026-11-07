@@ -52,6 +52,23 @@ export type MoodDay = {
   note: string;
 };
 
+export type BookingStatus = "confirmed" | "rescheduled" | "canceled";
+
+export type Booking = {
+  id: string;
+  expertId: number;
+  expertName: string;
+  expertRole: string;
+  specialty: string;
+  price: string;
+  accent: string;
+  slot: string;
+  preference: string;
+  reason: string;
+  status: BookingStatus;
+  createdAt: number;
+};
+
 export type ConversationMessage = {
   id: number;
   sender: string;

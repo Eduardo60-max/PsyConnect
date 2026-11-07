@@ -2,6 +2,7 @@ import { useState, type SyntheticEvent } from "react";
 import type { Category, CommunityGroup, FeedPost, PostComment, Professional } from "./types";
 import { avatarInitial } from "./utils";
 import { addPostCommentRequest, fetchPostComments } from "./api";
+import { ChallengeStatsPanel } from "./ChallengeStatsPanel";
 
 type GroupRoomProps = {
   group: CommunityGroup;
@@ -9,6 +10,7 @@ type GroupRoomProps = {
   category: Category | undefined;
   posts: FeedPost[];
   completedDays: number[];
+  userName: string;
   showWelcome: boolean;
   onDismissWelcome: () => void;
   onToggleDay: (groupId: string, day: number) => void;
@@ -26,6 +28,7 @@ export function GroupRoom({
   category,
   posts,
   completedDays,
+  userName,
   showWelcome,
   onDismissWelcome,
   onToggleDay,
@@ -44,8 +47,9 @@ export function GroupRoom({
   const [commentError, setCommentError] = useState("");
   const [isSendingComment, setIsSendingComment] = useState(false);
 
-  const hasChallenge = group.isTemporary && Boolean(group.durationDays);
-  const progressPercent = group.durationDays ? Math.round((completedDays.length / group.durationDays) * 100) : 0;
+  const duration = group.durationDays ?? 0;
+  const hasChallenge = group.isTemporary && duration > 0;
+  const progressPercent = duration > 0 ? Math.round((completedDays.length / duration) * 100) : 0;
 
   const handlePost = (event: SyntheticEvent) => {
     event.preventDefault();
@@ -108,7 +112,10 @@ export function GroupRoom({
       <section className="room-hero" style={{ background: `linear-gradient(135deg, ${group.accent}, #2563eb)` }}>
         <div className="room-hero-top">
           <div>
-            <p className="room-hero-eyebrow">{category?.label}{group.isTemporary ? " · Desafio" : ""}</p>
+            <p className="room-hero-eyebrow">
+              {category?.label}
+              {group.isTemporary ? " · Desafio" : ""}
+            </p>
             <h2>{group.name}</h2>
           </div>
           <span className="room-member-badge">✓ Você é membro</span>
@@ -120,7 +127,7 @@ export function GroupRoom({
       </section>
 
       {showWelcome && (
-        <div className="welcome-banner" role="status">
+        <output className="welcome-banner">
           <div>
             <strong>Você entrou em {group.name}! 🎉</strong>
             <p>Este é o seu espaço. Que tal começar se apresentando para o grupo?</p>
@@ -133,7 +140,7 @@ export function GroupRoom({
               ✕
             </button>
           </div>
-        </div>
+        </output>
       )}
 
       <div className="room-tabs" role="tablist">
@@ -255,18 +262,20 @@ export function GroupRoom({
         </section>
       )}
 
-      {tab === "desafio" && hasChallenge && group.durationDays && (
+      {tab === "desafio" && hasChallenge && (
         <section className="room-content">
           <div className="challenge-tracker">
             <div className="challenge-tracker-header">
               <strong>Acompanhamento do desafio</strong>
-              <span>{completedDays.length} de {group.durationDays} dias concluídos</span>
+              <span>
+                {completedDays.length} de {duration} dias concluídos
+              </span>
             </div>
             <div className="progress-bar-track">
               <div className="progress-bar-fill" style={{ width: `${progressPercent}%`, backgroundColor: group.accent }} />
             </div>
             <div className="challenge-days">
-              {Array.from({ length: group.durationDays }, (_, index) => index + 1).map(day => {
+              {Array.from({ length: duration }, (_, index) => index + 1).map(day => {
                 const done = completedDays.includes(day);
                 return (
                   <button
@@ -283,6 +292,14 @@ export function GroupRoom({
               })}
             </div>
           </div>
+
+          <ChallengeStatsPanel
+            groupId={group.id}
+            total={duration}
+            accent={group.accent}
+            completedDays={completedDays}
+            userName={userName}
+          />
         </section>
       )}
 

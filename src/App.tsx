@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import "./index.css";
-import type { CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
+import type { Booking, CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
 import { categories, professionals } from "./data";
 import {
   addGroupPostRequest,
+  cancelBookingRequest,
+  createBookingRequest,
   createGroupRequest,
+  fetchBookings,
   fetchChallengeDays,
   fetchConversations,
   fetchGroupPosts,
   fetchGroups,
+  rescheduleBookingRequest,
   sendConversationMessageRequest,
   toggleChallengeDayRequest,
   toggleGroupJoinRequest,
@@ -19,14 +23,24 @@ import { GroupDetailModal } from "./GroupDetailModal";
 import { GroupCreateModal } from "./GroupCreateModal";
 import { GroupRoom } from "./GroupRoom";
 import { MessagesScreen } from "./MessagesScreen";
+import { MyBookings } from "./MyBookings";
 import { AuthGate, type CurrentUser } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";
 import { BreathingExercise } from "./BreathingExercise";
 import { MoodTracker } from "./MoodTracker";
 import { DemoReset } from "./DemoReset";
+import { NotificationBell } from "./NotificationBell";
+import {
+  addToList,
+  loadNotifications,
+  saveNotifications,
+  type AppNotification,
+  type NewNotification,
+} from "./notifications";
+import { computeChallengeStats, newlyUnlocked } from "./challengeStats";
 import { avatarInitial } from "./utils";
 
-type Screen = "home" | "specialists" | "booking" | "groups" | "messages";
+type Screen = "home" | "specialists" | "booking" | "bookings" | "groups" | "messages";
 
 type Expert = {
   id: number;
@@ -63,6 +77,11 @@ type FeedPost = {
   time: string;
   likes: string;
   comments: string;
+};
+
+type NotificationStore = {
+  email: string;
+  items: AppNotification[];
 };
 
 const experts: Expert[] = [
@@ -188,6 +207,10 @@ function clockLabel() {
   return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bahia" });
 }
 
+function shorten(text: string, max = 80) {
+  return text.length > max ? `${text.slice(0, max).trimEnd()}...` : text;
+}
+
 // Gera uma distância "simulada" mas estável (o mesmo grupo sempre calcula a
 // mesma distância enquanto a localização do usuário não mudar).
 function simulatedDistanceKm(seed: string, lat: number, lng: number) {
@@ -230,6 +253,13 @@ export function App() {
     preference: "Online",
   });
 
+  // ---- Minhas sessões ----
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(true);
+  const [bookingsError, setBookingsError] = useState("");
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+  const [bookingError, setBookingError] = useState("");
+
   // ---- Usuário ----
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
     if (typeof window === "undefined") return null;
@@ -251,6 +281,35 @@ export function App() {
       email: currentUser.email,
     }));
   }, [currentUser]);
+
+  // ---- Notificações (guardadas no navegador, por e-mail) ----
+  const [notifStore, setNotifStore] = useState<NotificationStore>({ email: "", items: [] });
+
+  useEffect(() => {
+    if (!currentUser) return;
+    setNotifStore({ email: currentUser.email, items: loadNotifications(currentUser.email) });
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || notifStore.email !== currentUser.email) return;
+    saveNotifications(currentUser.email, notifStore.items);
+  }, [notifStore, currentUser]);
+
+  const notifications = notifStore.email === currentUser?.email ? notifStore.items : [];
+
+  const addNotification = (input: NewNotification) => {
+    const email = currentUser?.email;
+    if (!email) return;
+    setNotifStore(current => (current.email === email ? { email, items: addToList(current.items, input) } : current));
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    setNotifStore(current => ({ ...current, items: current.items.map(item => ({ ...item, read: true })) }));
+  };
+
+  const handleClearNotifications = () => {
+    setNotifStore(current => ({ ...current, items: [] }));
+  };
 
   // ---- Comunidade / grupos (carregados da API) ----
   const [communityGroups, setCommunityGroups] = useState<CommunityGroup[]>([]);
@@ -333,6 +392,13 @@ export function App() {
       .catch(() => {
         // mensagens ficam vazias se a API falhar
       });
+
+    setBookingsLoading(true);
+    setBookingsError("");
+    fetchBookings(currentUser.email)
+      .then(setBookings)
+      .catch(() => setBookingsError("Não foi possível carregar suas sessões agora."))
+      .finally(() => setBookingsLoading(false));
   }, [currentUser]);
 
   // ---- Grupos: ações ----
@@ -370,18 +436,41 @@ export function App() {
   };
 
   const handleToggleGroupJoin = async (groupId: string) => {
-    const wasJoined = communityGroups.find(group => group.id === groupId)?.joined ?? false;
+    const group = communityGroups.find(item => item.id === groupId);
+    const wasJoined = group?.joined ?? false;
+
     if (wasJoined) {
       if (roomGroupId === groupId) setRoomGroupId(null);
     } else {
       handleEnterRoom(groupId, true);
+
+      if (group) {
+        addNotification({
+          kind: "group",
+          title: `Você entrou em ${group.name}`,
+          body: "Se apresente no mural para conhecer o grupo.",
+          target: { screen: "groups", groupId },
+        });
+
+        const admin = professionals.find(professional => professional.id === group.adminId);
+        if (admin) {
+          window.setTimeout(() => {
+            addNotification({
+              kind: "group",
+              title: `Boas-vindas de ${admin.name}`,
+              body: `Seja bem-vindo(a) a ${group.name}! Conte um pouco sobre você no mural.`,
+              target: { screen: "groups", groupId },
+            });
+          }, 8000);
+        }
+      }
     }
 
     const toggle = (current: CommunityGroup[]) =>
-      current.map(group =>
-        group.id === groupId
-          ? { ...group, joined: !group.joined, members: group.joined ? group.members - 1 : group.members + 1 }
-          : group,
+      current.map(item =>
+        item.id === groupId
+          ? { ...item, joined: !item.joined, members: item.joined ? item.members - 1 : item.members + 1 }
+          : item,
       );
 
     setCommunityGroups(toggle);
@@ -393,12 +482,33 @@ export function App() {
     }
   };
 
+  // Avisa quando uma medalha nova é desbloqueada
+  const notifyNewMedals = (group: CommunityGroup, previous: number[], next: number[]) => {
+    if (!group.durationDays) return;
+    const before = computeChallengeStats(previous, group.durationDays);
+    const after = computeChallengeStats(next, group.durationDays);
+    for (const medal of newlyUnlocked(before, after)) {
+      addNotification({
+        kind: "challenge",
+        key: `medal-${group.id}-${medal.id}`,
+        title: `${medal.emoji} Conquista: ${medal.title}`,
+        body: `${group.name}: ${medal.description}`,
+        target: { screen: "groups", groupId: group.id },
+      });
+    }
+  };
+
   const handleToggleChallengeDay = async (groupId: string, day: number) => {
-    setCompletedDaysByGroup(current => {
-      const done = current[groupId] ?? [];
-      const nextDone = done.includes(day) ? done.filter(existing => existing !== day) : [...done, day].sort((a, b) => a - b);
-      return { ...current, [groupId]: nextDone };
-    });
+    const previous = completedDaysByGroup[groupId] ?? [];
+    const next = previous.includes(day)
+      ? previous.filter(existing => existing !== day)
+      : [...previous, day].sort((a, b) => a - b);
+
+    setCompletedDaysByGroup(current => ({ ...current, [groupId]: next }));
+
+    const group = communityGroups.find(item => item.id === groupId);
+    if (group) notifyNewMedals(group, previous, next);
+
     try {
       const days = await toggleChallengeDayRequest(groupId, day);
       setCompletedDaysByGroup(current => ({ ...current, [groupId]: days }));
@@ -499,6 +609,12 @@ export function App() {
         const isViewing = view.screen === "messages" && view.conversationId === conversationId;
         if (arrived && !isViewing) {
           setUnreadIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
+          addNotification({
+            kind: "message",
+            title: `${conversation?.name ?? "Profissional"} respondeu`,
+            body: shorten(conversation?.messages.at(-1)?.text ?? "Nova mensagem"),
+            target: { screen: "messages", conversationId },
+          });
         }
       })
       .catch(() => stopTyping(conversationId));
@@ -532,6 +648,8 @@ export function App() {
   const selectedGroup = communityGroups.find(group => group.id === selectedGroupId);
   const roomGroup = communityGroups.find(group => group.id === roomGroupId && group.joined);
   const myGroups = communityGroups.filter(group => group.joined);
+  const upcomingBookings = bookings.filter(booking => booking.status !== "canceled");
+  const nextBooking = upcomingBookings[0];
 
   const suggestedGroups = useMemo(() => {
     const joinedThemes = new Set(communityGroups.filter(group => group.joined).map(group => group.theme));
@@ -572,6 +690,7 @@ export function App() {
     setSelectedExpert(expert);
     setSelectedSlot(availabilitySlots.includes(expert.availability) ? expert.availability : "");
     setSlotError(false);
+    setBookingError("");
     setIsBooked(false);
     setActiveScreen("booking");
   };
@@ -584,22 +703,107 @@ export function App() {
   const handleSelectSlot = (slot: string) => {
     setSelectedSlot(slot);
     setSlotError(false);
+    setBookingError("");
     setIsBooked(false);
   };
 
-  const handleSubmit = (event: SyntheticEvent) => {
+  const handleSubmit = async (event: SyntheticEvent) => {
     event.preventDefault();
     if (!selectedSlot) {
       setSlotError(true);
       return;
     }
     setSlotError(false);
-    setIsBooked(true);
+    setBookingError("");
+    setIsSubmittingBooking(true);
+    try {
+      const updated = await createBookingRequest(currentUser?.email ?? formData.email, {
+        expertId: selectedExpert.id,
+        expertName: selectedExpert.name,
+        expertRole: selectedExpert.role,
+        specialty: selectedExpert.specialty,
+        price: selectedExpert.price,
+        accent: selectedExpert.accent,
+        slot: selectedSlot,
+        preference: formData.preference,
+        reason: formData.reason.trim(),
+      });
+      setBookings(updated);
+      setIsBooked(true);
+      setFormData(current => ({ ...current, reason: "" }));
+      addNotification({
+        kind: "booking",
+        title: "Sessão confirmada",
+        body: `${selectedExpert.name} • ${selectedSlot} (${formData.preference})`,
+        target: { screen: "bookings" },
+      });
+    } catch (error) {
+      setIsBooked(false);
+      setBookingError(error instanceof Error ? error.message : "Não foi possível confirmar o agendamento.");
+    } finally {
+      setIsSubmittingBooking(false);
+    }
+  };
+
+  const handleCancelBooking = async (id: string): Promise<string | null> => {
+    const booking = bookings.find(item => item.id === id);
+    try {
+      setBookings(await cancelBookingRequest(currentUser?.email ?? "", id));
+      if (booking) {
+        addNotification({
+          kind: "booking",
+          title: "Sessão cancelada",
+          body: `${booking.expertName} • ${booking.slot}`,
+          target: { screen: "bookings" },
+        });
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Não foi possível cancelar a sessão.";
+    }
+  };
+
+  const handleRescheduleBooking = async (id: string, slot: string): Promise<string | null> => {
+    const booking = bookings.find(item => item.id === id);
+    try {
+      setBookings(await rescheduleBookingRequest(currentUser?.email ?? "", id, slot));
+      if (booking) {
+        addNotification({
+          kind: "booking",
+          title: "Sessão remarcada",
+          body: `${booking.expertName} • novo horário: ${slot}`,
+          target: { screen: "bookings" },
+        });
+      }
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Não foi possível remarcar a sessão.";
+    }
+  };
+
+  const handleOpenNotification = (notification: AppNotification) => {
+    setNotifStore(current => ({
+      ...current,
+      items: current.items.map(item => (item.id === notification.id ? { ...item, read: true } : item)),
+    }));
+
+    const target = notification.target;
+    if (!target) return;
+
+    if (target.screen === "groups" && target.groupId) {
+      handleEnterRoom(target.groupId);
+      return;
+    }
+    if (target.screen === "groups") setRoomGroupId(null);
+    if (target.screen === "messages" && target.conversationId) setActiveConversationId(target.conversationId);
+    setActiveScreen(target.screen);
   };
 
   const handleLogout = () => {
     window.localStorage.removeItem("psyconect_user");
     setCurrentUser(null);
+    setBookings([]);
+    setNotifStore({ email: "", items: [] });
     setRoomGroupId(null);
     setActiveScreen("home");
   };
@@ -626,6 +830,10 @@ export function App() {
           <button type="button" className={activeScreen === "booking" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("booking")}>
             Agendamento
           </button>
+          <button type="button" className={activeScreen === "bookings" ? "nav-link active" : "nav-link"} onClick={() => setActiveScreen("bookings")}>
+            Sessões
+            {upcomingBookings.length > 0 && <span className="nav-badge">{upcomingBookings.length}</span>}
+          </button>
           <button
             type="button"
             className={activeScreen === "groups" ? "nav-link active" : "nav-link"}
@@ -643,6 +851,12 @@ export function App() {
         </nav>
         <div className="topbar-user">
           <span className="topbar-greeting">Olá, {currentUser.name.split(" ")[0]}</span>
+          <NotificationBell
+            items={notifications}
+            onOpenItem={handleOpenNotification}
+            onMarkAllRead={handleMarkAllNotificationsRead}
+            onClear={handleClearNotifications}
+          />
           <button
             type="button"
             className="theme-toggle"
@@ -725,6 +939,20 @@ export function App() {
 
           <aside className="feed-sidebar">
             <CrisisNotice />
+
+            {nextBooking && (
+              <div className="insight-card next-booking-card">
+                <p className="eyebrow">Próxima sessão</p>
+                <h3>{nextBooking.expertName}</h3>
+                <p>
+                  🕒 {nextBooking.slot} · {nextBooking.preference === "Online" ? "💻 Online" : "📍 Presencial"}
+                </p>
+                <button type="button" className="secondary-btn full-width" onClick={() => setActiveScreen("bookings")}>
+                  Ver minhas sessões
+                </button>
+              </div>
+            )}
+
             <BreathingExercise />
             <MoodTracker email={currentUser.email} />
 
@@ -983,10 +1211,11 @@ export function App() {
                   <option value="Presencial">Presencial</option>
                 </select>
               </label>
-              <button type="submit" className="primary-btn full-width">
-                Confirmar agendamento
+              <button type="submit" className="primary-btn full-width" disabled={isSubmittingBooking}>
+                {isSubmittingBooking ? "Confirmando..." : "Confirmar agendamento"}
               </button>
             </form>
+            {bookingError && <p className="field-error">{bookingError}</p>}
             {isBooked && (
               <div className="success-box">
                 <strong>Agendamento confirmado!</strong>
@@ -994,10 +1223,25 @@ export function App() {
                   {selectedExpert.name} • {selectedSlot} ({formData.preference}). Você receberá um e-mail com o link
                   da sessão e detalhes da consulta.
                 </p>
+                <button type="button" className="secondary-btn small" onClick={() => setActiveScreen("bookings")}>
+                  Ver minhas sessões
+                </button>
               </div>
             )}
           </section>
         </main>
+      )}
+
+      {activeScreen === "bookings" && (
+        <MyBookings
+          bookings={bookings}
+          isLoading={bookingsLoading}
+          error={bookingsError}
+          slots={availabilitySlots}
+          onCancel={handleCancelBooking}
+          onReschedule={handleRescheduleBooking}
+          onNewBooking={() => setActiveScreen("specialists")}
+        />
       )}
 
       {activeScreen === "groups" && isLoadingGroups && (
@@ -1032,6 +1276,7 @@ export function App() {
           category={categories.find(category => category.id === roomGroup.theme)}
           posts={postsByGroup[roomGroup.id] ?? []}
           completedDays={completedDaysByGroup[roomGroup.id] ?? []}
+          userName={currentUser.name}
           showWelcome={welcomeGroupId === roomGroup.id}
           onDismissWelcome={() => setWelcomeGroupId(null)}
           onToggleDay={handleToggleChallengeDay}

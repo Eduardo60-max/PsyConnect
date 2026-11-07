@@ -1692,6 +1692,405 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Minhas sessões */
+.bookings-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.booking-card {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.booking-card.canceled {
+  opacity: 0.7;
+}
+
+.booking-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.booking-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.booking-card-title h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.booking-card-title p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.status-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-confirmed {
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-text);
+}
+
+.status-rescheduled {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  color: var(--accent-strong);
+}
+
+.status-canceled {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.booking-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--text-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.booking-reason {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.booking-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.danger-btn {
+  color: var(--danger);
+}
+
+.reschedule-box {
+  background: var(--surface-alt);
+  border-radius: 16px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.reschedule-box p {
+  margin: 0;
+  color: var(--text-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.reschedule-box .availability-list {
+  margin-top: 0;
+}
+
+.booking-feedback.ok {
+  margin: 0;
+  color: var(--success-text);
+  font-size: 0.88rem;
+}
+
+.next-booking-card h3 {
+  margin-bottom: 4px;
+}
+
+.next-booking-card p {
+  margin: 0 0 12px;
+  color: var(--text-soft);
+}
+
+.secondary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Sininho de notificações */
+.notif-root {
+  position: relative;
+}
+
+.notif-btn {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--like);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(380px, 92vw);
+  max-height: 480px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+  padding: 14px;
+  z-index: 60;
+}
+
+.notif-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text-strong);
+}
+
+.notif-panel-actions {
+  display: flex;
+  gap: 12px;
+  font-size: 0.8rem;
+}
+
+.notif-panel-actions .text-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.notif-empty {
+  margin: 12px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notif-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  border-radius: 14px;
+  padding: 10px;
+  text-align: left;
+  color: var(--text-body);
+}
+
+.notif-item:hover {
+  background: var(--accent-hover-bg);
+}
+
+.notif-item.unread {
+  background: var(--accent-soft);
+}
+
+.notif-icon {
+  font-size: 1.2rem;
+  line-height: 1.3;
+}
+
+.notif-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notif-text strong {
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.notif-text span {
+  font-size: 0.84rem;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.notif-text small {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.notif-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+/* Estatísticas do desafio */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 14px 10px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.stat-tile strong {
+  display: block;
+  font-size: 1.3rem;
+  color: var(--brand);
+}
+
+.stat-tile span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.medals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.medal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  padding: 14px 10px;
+  border-radius: 16px;
+  background: var(--surface-alt);
+  border: 1px dashed var(--border-input);
+  opacity: 0.6;
+}
+
+.medal.unlocked {
+  opacity: 1;
+  border-style: solid;
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft);
+}
+
+.medal-emoji {
+  font-size: 1.8rem;
+}
+
+.medal strong {
+  color: var(--text-strong);
+  font-size: 0.88rem;
+}
+
+.medal small {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.ranking-note {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.ranking-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ranking-item {
+  display: grid;
+  grid-template-columns: 34px minmax(80px, 1fr) minmax(60px, 1.2fr) 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  color: var(--text-body);
+  font-size: 0.9rem;
+}
+
+.ranking-item.you {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  font-weight: 700;
+}
+
+.ranking-pos {
+  text-align: center;
+}
+
+.ranking-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-score {
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ranking-item {
+    grid-template-columns: 30px minmax(60px, 1fr) minmax(50px, 0.9fr) 42px;
+    gap: 8px;
+  }
+}
 @media (max-width: 640px) {
   .app-shell {
     padding: max(12px, env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));
