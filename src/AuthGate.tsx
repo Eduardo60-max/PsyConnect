@@ -1,21 +1,26 @@
-import { useState, type FormEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
+import { professionals } from "./data";
+import { avatarInitial } from "./utils";
 
 export type CurrentUser = {
   name: string;
   email: string;
+  role?: "patient" | "pro";
+  proId?: string;
 };
 
 type AuthGateProps = {
   onLogin: (user: CurrentUser) => void;
 };
 
-export function AuthGate({ onLogin }: AuthGateProps) {
+export function AuthGate({ onLogin }: Readonly<AuthGateProps>) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState("");
+  const [showPro, setShowPro] = useState(false);
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = (event: SyntheticEvent) => {
     event.preventDefault();
     if (!name.trim() || !email.trim()) {
       setError("Preencha nome e e-mail para continuar.");
@@ -26,7 +31,7 @@ export function AuthGate({ onLogin }: AuthGateProps) {
       return;
     }
     setError("");
-    onLogin({ name: name.trim(), email: email.trim() });
+    onLogin({ name: name.trim(), email: email.trim(), role: "patient" });
   };
 
   return (
@@ -41,11 +46,11 @@ export function AuthGate({ onLogin }: AuthGateProps) {
 
         <form onSubmit={handleSubmit} className="booking-form">
           <label>
-            Nome
+            <span>Nome</span>
             <input type="text" value={name} onChange={event => setName(event.target.value)} placeholder="Seu nome" required />
           </label>
           <label>
-            E-mail
+            <span>E-mail</span>
             <input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="seu@email.com" required />
           </label>
 
@@ -63,6 +68,50 @@ export function AuthGate({ onLogin }: AuthGateProps) {
             Entrar
           </button>
         </form>
+
+        <div className="auth-divider">
+          <span>ou</span>
+        </div>
+
+        <button
+          type="button"
+          className="secondary-btn full-width"
+          onClick={() => setShowPro(current => !current)}
+          aria-expanded={showPro}
+        >
+          Entrar como profissional (demonstração)
+        </button>
+
+        {showPro && (
+          <ul className="suggested-group-list pro-login-list">
+            {professionals.map(professional => (
+              <li key={professional.id}>
+                <button
+                  type="button"
+                  className="suggested-group-item"
+                  onClick={() =>
+                    onLogin({
+                      name: professional.name,
+                      email: `${professional.id}@profissional.psyconect`,
+                      role: "pro",
+                      proId: professional.id,
+                    })
+                  }
+                >
+                  <span className="avatar avatar-small" style={{ backgroundColor: professional.accent }}>
+                    {avatarInitial(professional.name)}
+                  </span>
+                  <span>
+                    <strong>{professional.name}</strong>
+                    <span className="suggested-group-meta">
+                      {professional.role} · {professional.specialty}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

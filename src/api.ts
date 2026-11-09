@@ -1,4 +1,13 @@
-import type { Booking, CommunityGroup, Conversation, FeedPost, MoodDay, PostComment } from "./types";
+import type {
+  Booking,
+  CommunityGroup,
+  Conversation,
+  FeedPost,
+  MoodDay,
+  PostComment,
+  ProBooking,
+  ProChat,
+} from "./types";
 import { Capacitor } from "@capacitor/core";
 
 const API_BASE_URL = (typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__).replace(/\/+$/, "");
@@ -20,10 +29,19 @@ type RawPost = Omit<FeedPost, "liked"> & { liked?: number };
 
 export type SendMessageResult = {
   conversation: Conversation;
-  replyDelayMs: number;
+  replyDelayMs: number | null;
 };
 
 export type NewBookingPayload = Omit<Booking, "id" | "status" | "createdAt">;
+
+type ApiUser = { name: string; email: string };
+
+let currentApiUser: ApiUser | null = null;
+
+// O App avisa quem está logado; assim cada aba usa a própria identidade
+export function setApiUser(user: ApiUser | null) {
+  currentApiUser = user ? { name: user.name, email: user.email } : null;
+}
 
 function toGroup(raw: RawGroup): CommunityGroup {
   return {
@@ -65,19 +83,30 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// Nome de quem está logado (até termos autenticação de verdade)
-function getStoredUser(): { name: string; handle: string } {
-  try {
-    const stored = window.localStorage.getItem("psyconect_user");
-    const name = stored ? String((JSON.parse(stored) as { name?: string }).name ?? "") : "";
-    if (name.trim()) {
-      const first = name.trim().split(/\s+/)[0] ?? "voce";
-      return { name: name.trim(), handle: `@${first.toLowerCase()}` };
+function handleFor(name: string) {
+  const cleaned = name.trim().replace(/^(dra?|profa?|sra?)\.?\s+/i, "");
+  const first = cleaned.split(/\s+/)[0] || "voce";
+  return `@${first.toLowerCase()}`;
+}
+
+// Nome e e-mail de quem está logado
+function getStoredUser(): { name: string; handle: string; email: string } {
+  let name = currentApiUser?.name ?? "";
+  let email = currentApiUser?.email ?? "";
+
+  if (!name && !email) {
+    try {
+      const stored = window.localStorage.getItem("psyconect_user");
+      const parsed = stored ? (JSON.parse(stored) as { name?: string; email?: string }) : {};
+      name = String(parsed.name ?? "");
+      email = String(parsed.email ?? "");
+    } catch {
+      // ignora e usa o padrão
     }
-  } catch {
-    // ignora e usa o padrão
   }
-  return { name: "Você", handle: "@voce" };
+
+  name = name.trim();
+  return { name: name || "Você", handle: name ? handleFor(name) : "@voce", email: email.trim() };
 }
 
 export async function fetchGroups(): Promise<CommunityGroup[]> {
@@ -146,7 +175,7 @@ export async function fetchBookings(email: string): Promise<Booking[]> {
 export async function createBookingRequest(email: string, payload: NewBookingPayload): Promise<Booking[]> {
   return request<Booking[]>("/api/bookings", {
     method: "POST",
-    body: JSON.stringify({ email, ...payload }),
+    body: JSON.stringify({ email, patientName: getStoredUser().name, ...payload }),
   });
 }
 
@@ -173,13 +202,59 @@ export async function fetchChallengeDays(groupId: string): Promise<number[]> {
 }
 
 export async function fetchConversations(): Promise<Conversation[]> {
-  return request<Conversation[]>("/api/conversations");
+  const user = getStoredUser();
+  return request<Conversation[]>(
+    `/api/conversations?email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name)}`,
+  );
 }
 
 export async function sendConversationMessageRequest(conversationId: number, text: string): Promise<SendMessageResult> {
+  const user = getStoredUser();
   return request<SendMessageResult>(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, email: user.email }),
+  });
+}
+
+// ---- Painel do profissional ----
+export async function fetchProBookings(proId: string): Promise<ProBooking[]> {
+  return request<ProBooking[]>(`/api/pro/bookings?proId=${encodeURIComponent(proId)}`);
+}
+
+export async function proCancelBookingRequest(proId: string, id: string): Promise<ProBooking[]> {
+  return request<ProBooking[]>(`/api/pro/bookings/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ proId }),
+  });
+}
+
+export async function proRescheduleBookingRequest(proId: string, id: string, slot: string): Promise<ProBooking[]> {
+  return request<ProBooking[]>(`/api/pro/bookings/${id}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify({ proId, slot }),
+  });
+}
+
+export async function fetchProChats(proId: string): Promise<ProChat[]> {
+  return request<ProChat[]>(`/api/pro/chats?proId=${encodeURIComponent(proId)}`);
+}
+
+export type ProSendResult = {
+  chats: ProChat[];
+  replyDelayMs: number | null;
+};
+
+export async function sendProMessageRequest(proId: string, chatId: number, text: string): Promise<ProSendResult> {
+  return request<ProSendResult>(`/api/pro/chats/${chatId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ proId, text }),
+  });
+}
+
+export async function setProAutoRequest(proId: string, chatId: number, enabled: boolean): Promise<ProChat[]> {
+  return request<ProChat[]>(`/api/pro/chats/${chatId}/auto`, {
+    method: "POST",
+    body: JSON.stringify({ proId, enabled }),
   });
 }
 

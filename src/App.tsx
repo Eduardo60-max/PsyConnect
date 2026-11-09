@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import "./index.css";
 import type { Booking, CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
 import { categories, professionals } from "./data";
@@ -14,6 +14,7 @@ import {
   fetchGroups,
   rescheduleBookingRequest,
   sendConversationMessageRequest,
+  setApiUser,
   toggleChallengeDayRequest,
   toggleGroupJoinRequest,
   togglePostLikeRequest,
@@ -39,6 +40,9 @@ import {
 } from "./notifications";
 import { computeChallengeStats, newlyUnlocked } from "./challengeStats";
 import { avatarInitial } from "./utils";
+import { ProApp } from "./ProApp";
+import { usePolling } from "./usePolling";
+import { diffBookings, newProMessages } from "./liveSync";
 
 type Screen = "home" | "specialists" | "booking" | "bookings" | "groups" | "messages";
 
@@ -222,6 +226,10 @@ function simulatedDistanceKm(seed: string, lat: number, lng: number) {
   return Number((0.4 + (hash % 940) / 100).toFixed(1));
 }
 
+function When({ condition, children }: { condition: boolean; children: ReactNode }) {
+  return condition ? children : null;
+}
+
 export function App() {
   // ---- Tema ----
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -272,6 +280,10 @@ export function App() {
     setCurrentUser(user);
   };
 
+    // Informa à camada de API quem está logado (mensagens, posts e agendamentos usam isso)
+  useEffect(() => {
+    setApiUser(currentUser);
+  }, [currentUser]);
   // Pré-preenche o agendamento com os dados de quem está logado
   useEffect(() => {
     if (!currentUser) return;
@@ -343,6 +355,50 @@ export function App() {
     );
   }, [activeScreen, activeConversationId]);
 
+    // ---- Atualização ao vivo: respostas reais dos profissionais e mudanças nas sessões ----
+  const liveRef = useRef({ conversations, bookings, typingIds });
+  useEffect(() => {
+    liveRef.current = { conversations, bookings, typingIds };
+  }, [conversations, bookings, typingIds]);
+
+  usePolling(Boolean(currentUser) && currentUser?.role !== "pro", 4000, async () => {
+    const email = currentUser?.email;
+    if (!email) return;
+
+    const [loadedConversations, loadedBookings] = await Promise.all([fetchConversations(), fetchBookings(email)]);
+    const previous = liveRef.current;
+
+    // conversas em "digitando..." já são tratadas pelo waitForReply
+    const arrivals = newProMessages(previous.conversations, loadedConversations).filter(
+      arrival => !previous.typingIds.includes(arrival.conversationId),
+    );
+    const view = viewRef.current;
+
+    for (const arrival of arrivals) {
+      const isViewing = view.screen === "messages" && view.conversationId === arrival.conversationId;
+      if (isViewing) continue;
+
+      setUnreadIds(current =>
+        current.includes(arrival.conversationId) ? current : [...current, arrival.conversationId],
+      );
+      addNotification({
+        kind: "message",
+        key: `msg-${arrival.conversationId}-${arrival.messageCount}`,
+        title: `${arrival.name} respondeu`,
+        body: shorten(arrival.text),
+        target: { screen: "messages", conversationId: arrival.conversationId },
+      });
+    }
+
+    for (const change of diffBookings(previous.bookings, loadedBookings)) addNotification(change);
+
+    if (JSON.stringify(previous.conversations) !== JSON.stringify(loadedConversations)) {
+      setConversations(loadedConversations);
+    }
+    if (JSON.stringify(previous.bookings) !== JSON.stringify(loadedBookings)) {
+      setBookings(loadedBookings);
+    }
+  });
   // ---- Localização ----
   const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
   const [useRealLocation, setUseRealLocation] = useState(false);
@@ -372,7 +428,7 @@ export function App() {
       : (demoLocations.find(location => location.id === selectedLocationId) ?? defaultLocation);
 
   useEffect(() => {
-    if (!currentUser) return;
+       if (!currentUser || currentUser.role === "pro") return;
 
     fetchGroups()
       .then(loaded => {
@@ -637,6 +693,7 @@ export function App() {
     try {
       const { conversation, replyDelayMs } = await sendConversationMessageRequest(conversationId, text);
       setConversations(current => current.map(item => (item.id === conversationId ? conversation : item)));
+      if (replyDelayMs === null) return;
       setTypingIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
       window.setTimeout(() => waitForReply(conversationId, conversation.messages.length), replyDelayMs + 300);
     } catch {
@@ -813,6 +870,16 @@ export function App() {
     return <AuthGate onLogin={handleLogin} />;
   }
 
+    if (currentUser.role === "pro") {
+    return (
+      <ProApp
+        user={currentUser}
+        theme={theme}
+        onToggleTheme={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+        onLogout={handleLogout}
+      />
+    );
+  }
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -872,7 +939,7 @@ export function App() {
         </div>
       </header>
 
-      {activeScreen === "home" && (
+      <When condition={activeScreen === "home"}>
         <main className="screen feed-layout">
           <section className="feed-main">
             <div className="composer-card">
@@ -1072,9 +1139,9 @@ export function App() {
             </div>
           </aside>
         </main>
-      )}
+      </When>
 
-      {activeScreen === "specialists" && (
+      <When condition={activeScreen === "specialists"}>
         <main className="screen">
           <section className="section-heading">
             <div>
@@ -1134,9 +1201,9 @@ export function App() {
             ))}
           </div>
         </main>
-      )}
+      </When>
 
-      {activeScreen === "booking" && (
+      <When condition={activeScreen === "booking"}>
         <main className="screen booking-layout">
           <section className="booking-summary">
             <p className="eyebrow">Agendamento</p>
@@ -1192,7 +1259,7 @@ export function App() {
                 />
               </label>
               <label>
-                Motivo da sessão
+                Motivo da sessão{" "}
                 <textarea
                   value={formData.reason}
                   onChange={event => setFormData({ ...formData, reason: event.target.value })}
@@ -1202,7 +1269,7 @@ export function App() {
                 />
               </label>
               <label>
-                Preferência
+                Preferência{" "}
                 <select
                   value={formData.preference}
                   onChange={event => setFormData({ ...formData, preference: event.target.value })}
@@ -1230,9 +1297,9 @@ export function App() {
             )}
           </section>
         </main>
-      )}
+      </When>
 
-      {activeScreen === "bookings" && (
+      <When condition={activeScreen === "bookings"}>
         <MyBookings
           bookings={bookings}
           isLoading={bookingsLoading}
@@ -1242,7 +1309,7 @@ export function App() {
           onReschedule={handleRescheduleBooking}
           onNewBooking={() => setActiveScreen("specialists")}
         />
-      )}
+      </When>
 
       {activeScreen === "groups" && isLoadingGroups && (
         <main className="screen">
@@ -1287,7 +1354,7 @@ export function App() {
         />
       )}
 
-      {activeScreen === "messages" && (
+      <When condition={activeScreen === "messages"}>
         <MessagesScreen
           conversations={conversations}
           activeConversationId={activeConversationId}
@@ -1296,7 +1363,7 @@ export function App() {
           onSelectConversation={setActiveConversationId}
           onSendMessage={handleSendConversationMessage}
         />
-      )}
+      </When>
 
       {selectedGroup && (
         <GroupDetailModal

@@ -1,14 +1,11 @@
 import { serve, type BunRequest } from "bun";
 import index from "./index.html";
 import {
-  addMessage,
   addPost,
   createGroup,
   listChallengeDays,
-  listConversations,
   listGroups,
   listPosts,
-  listRecentReplies,
   resetDatabase,
   toggleChallengeDay,
   toggleGroupJoin,
@@ -16,8 +13,35 @@ import {
 } from "./db";
 import { addComment, listComments } from "./comments";
 import { listMoodWeek, normalizeEmail, saveMood } from "./mood";
-import { cancelBooking, createBooking, listBookings, rescheduleBooking, resetBookings } from "./bookings";
+import {
+  cancelBooking,
+  cancelBookingAsExpert,
+  createBooking,
+  listBookings,
+  listBookingsForExpert,
+  rescheduleBooking,
+  rescheduleBookingAsExpert,
+  resetBookings,
+} from "./bookings";
+import {
+  addAutoReply,
+  addPatientAutoMessage,
+  addPatientMessage,
+  addProMessage,
+  ensurePatientChats,
+  isAutoChat,
+  isDemoPatient,
+  lastSender,
+  listPatientChats,
+  listProChats,
+  recentPatientMessages,
+  recentProReplies,
+  resetChats,
+  setChatAuto,
+} from "./chats";
+import { professionals } from "./data";
 import { pickReply, replyDelayMs } from "./chatbot";
+import { pickPatientReply } from "./patientBot";
 
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS ?? "capacitor://localhost,https://localhost")
@@ -66,17 +90,41 @@ function cleanText(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+// "prof-1" -> expertId 1 (os especialistas da tela de agendamento usam os ids 1 a 3)
+function resolvePro(value: unknown): { proId: string; expertId: number } | null {
+  const proId = typeof value === "string" ? value : "";
+  if (!professionals.some(professional => professional.id === proId)) return null;
+  return { proId, expertId: Number(proId.replace("prof-", "")) };
+}
+
 // ---- Respostas automáticas dos profissionais ----
+const PERSONA_BY_PRO: Record<string, number> = { "prof-1": 1, "prof-2": 2, "prof-5": 3 };
 const pendingReplies = new Set<ReturnType<typeof setTimeout>>();
 
-function scheduleReply(conversationId: number, text: string, delay: number) {
+function scheduleReply(chatId: number, proId: string, text: string, delay: number) {
   const timer = setTimeout(() => {
     pendingReplies.delete(timer);
     try {
-      const recent = listRecentReplies(conversationId, 4);
-      addMessage(conversationId, "them", pickReply(conversationId, text, recent), currentTimeLabel());
+      if (!isAutoChat(chatId)) return;
+      // se o profissional de verdade respondeu nesse meio tempo, o bot fica quieto
+      if (lastSender(chatId) === "pro") return;
+      const recent = recentProReplies(chatId, 4);
+      addAutoReply(chatId, pickReply(PERSONA_BY_PRO[proId] ?? 0, text, recent), currentTimeLabel());
     } catch (error) {
       console.error("Falha ao gravar a resposta automática:", error);
+    }
+  }, delay);
+  pendingReplies.add(timer);
+}
+
+function schedulePatientReply(chatId: number, text: string, delay: number) {
+  const timer = setTimeout(() => {
+    pendingReplies.delete(timer);
+    try {
+      const recent = recentPatientMessages(chatId, 4);
+      addPatientAutoMessage(chatId, pickPatientReply(text, recent), currentTimeLabel());
+    } catch (error) {
+      console.error("Falha ao gravar a resposta do paciente simulado:", error);
     }
   }, delay);
   pendingReplies.add(timer);
@@ -124,6 +172,7 @@ const routes = {
       pendingReplies.clear();
       resetDatabase();
       resetBookings();
+      resetChats();
       return apiResponse(req, { ok: true });
     },
   },
@@ -234,7 +283,7 @@ const routes = {
     },
   },
 
-  // ---- Agendamentos ----
+  // ---- Agendamentos (paciente) ----
   "/api/bookings": {
     GET(req: Request) {
       const email = normalizeEmail(new URL(req.url).searchParams.get("email"));
@@ -256,6 +305,7 @@ const routes = {
 
       const failure = createBooking({
         email,
+        patientName: cleanText(body?.patientName, 80),
         expertId,
         expertName,
         expertRole: cleanText(body?.expertRole, 80),
@@ -307,31 +357,115 @@ const routes = {
     },
   },
 
-  // ---- Mensagens ----
+  // ---- Mensagens (paciente) ----
   "/api/conversations": {
     GET(req: Request) {
-      return apiResponse(req, listConversations());
+      const params = new URL(req.url).searchParams;
+      const email = normalizeEmail(params.get("email"));
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+      ensurePatientChats(email, cleanText(params.get("name"), 80));
+      return apiResponse(req, listPatientChats(email));
     },
   },
 
   "/api/conversations/:id/messages": {
     async POST(req: BunRequest<"/api/conversations/:id/messages">) {
-      const conversationId = Number(req.params.id);
+      const chatId = Number(req.params.id);
       const body = await req.json();
+      const email = normalizeEmail(body?.email);
+      if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
+
       const text = String(body?.text ?? "").trim();
       if (!text) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
       if (text.length > 1000) return apiResponse(req, { error: "A mensagem pode ter no máximo 1000 caracteres." }, { status: 400 });
-      if (!listConversations().some(conversation => conversation.id === conversationId)) {
-        return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
+
+      const chat = Number.isInteger(chatId) ? addPatientMessage(email, chatId, text, currentTimeLabel()) : null;
+      if (!chat) return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
+
+      // Só responde sozinho se o profissional não assumiu a conversa
+      let delay: number | null = null;
+      if (chat.auto) {
+        delay = replyDelayMs(text);
+        scheduleReply(chatId, chat.proId, text, delay);
       }
 
-      addMessage(conversationId, "me", text, currentTimeLabel());
-
-      const delay = replyDelayMs(text);
-      scheduleReply(conversationId, text, delay);
-
-      const conversation = listConversations().find(item => item.id === conversationId);
+      const conversation = listPatientChats(email).find(item => item.id === chatId);
       return apiResponse(req, { conversation, replyDelayMs: delay }, { status: 201 });
+    },
+  },
+
+  // ---- Painel do profissional ----
+  "/api/pro/bookings": {
+    GET(req: Request) {
+      const pro = resolvePro(new URL(req.url).searchParams.get("proId"));
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      return apiResponse(req, listBookingsForExpert(pro.expertId));
+    },
+  },
+
+  "/api/pro/bookings/:id/cancel": {
+    async POST(req: BunRequest<"/api/pro/bookings/:id/cancel">) {
+      const body = await req.json();
+      const pro = resolvePro(body?.proId);
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      const failure = cancelBookingAsExpert(pro.expertId, req.params.id);
+      if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+      return apiResponse(req, listBookingsForExpert(pro.expertId));
+    },
+  },
+
+  "/api/pro/bookings/:id/reschedule": {
+    async POST(req: BunRequest<"/api/pro/bookings/:id/reschedule">) {
+      const body = await req.json();
+      const pro = resolvePro(body?.proId);
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      const failure = rescheduleBookingAsExpert(pro.expertId, req.params.id, cleanText(body?.slot, 40));
+      if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+      return apiResponse(req, listBookingsForExpert(pro.expertId));
+    },
+  },
+
+  "/api/pro/chats": {
+    GET(req: Request) {
+      const pro = resolvePro(new URL(req.url).searchParams.get("proId"));
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      return apiResponse(req, listProChats(pro.proId));
+    },
+  },
+
+  "/api/pro/chats/:id/messages": {
+    async POST(req: BunRequest<"/api/pro/chats/:id/messages">) {
+      const body = await req.json();
+      const pro = resolvePro(body?.proId);
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+
+      const text = String(body?.text ?? "").trim();
+      if (!text) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
+      if (text.length > 1000) return apiResponse(req, { error: "A mensagem pode ter no máximo 1000 caracteres." }, { status: 400 });
+
+            const chat = addProMessage(pro.proId, Number(req.params.id), text, currentTimeLabel());
+      if (!chat) return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
+
+      // Paciente de exemplo responde sozinho
+      let delay: number | null = null;
+      if (isDemoPatient(chat)) {
+        delay = replyDelayMs(text) + 600;
+        schedulePatientReply(chat.id, text, delay);
+      }
+
+      return apiResponse(req, { chats: listProChats(pro.proId), replyDelayMs: delay }, { status: 201 });
+    },
+  },
+
+  "/api/pro/chats/:id/auto": {
+    async POST(req: BunRequest<"/api/pro/chats/:id/auto">) {
+      const body = await req.json();
+      const pro = resolvePro(body?.proId);
+      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
+      if (!setChatAuto(pro.proId, Number(req.params.id), Boolean(body?.enabled))) {
+        return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
+      }
+      return apiResponse(req, listProChats(pro.proId));
     },
   },
 };

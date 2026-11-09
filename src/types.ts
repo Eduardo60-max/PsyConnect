@@ -69,6 +69,11 @@ export type Booking = {
   createdAt: number;
 };
 
+export type ProBooking = Booking & {
+  patientName: string;
+  patientEmail: string;
+};
+
 export type ConversationMessage = {
   id: number;
   sender: string;
@@ -82,4 +87,9 @@ export type Conversation = {
   context: string;
   accent: string;
   messages: ConversationMessage[];
+};
+
+export type ProChat = Conversation & {
+  patientEmail: string;
+  auto: boolean;
 };

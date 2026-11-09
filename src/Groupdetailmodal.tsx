@@ -183,6 +183,7 @@ export function GroupDetailModal({
                   <div>
                     <div className="feed-author-row">
                       <strong>{post.author}</strong>
+                      {admin && post.author === admin.name && <span className="pro-badge">Responsável</span>}
                       <span>{post.handle}</span>
                       <span>•</span>
                       <span>{post.time}</span>

@@ -2091,6 +2091,138 @@ button {
     gap: 8px;
   }
 }
+
+/* Login do profissional */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 12px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.pro-login-list {
+  margin-top: 12px;
+}
+
+/* Selo de responsável */
+.pro-badge {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  color: var(--accent-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Painel do profissional */
+.pro-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.pro-overview-grid .insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pro-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-strong);
+}
+
+.pro-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.pro-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pro-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pro-group-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.pro-group-head h3 {
+  margin: 0;
+}
+
+.pro-group-body {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Caixa de entrada do profissional */
+.pro-chat-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.auto-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-reply {
+  border: 1px solid var(--border-input);
+  background: var(--surface-alt);
+  color: var(--text-body);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  text-align: left;
+  max-width: 100%;
+}
+
+.quick-reply:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+@media (max-width: 900px) {
+  .pro-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 @media (max-width: 640px) {
   .app-shell {
     padding: max(12px, env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));
