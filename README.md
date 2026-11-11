@@ -6,7 +6,7 @@
 2. Abra o PowerShell na pasta do projeto:
 
    ```powershell
-   cd C:\Users\eduar\Desktop\Java\PsyConnect
+   cd C:\Users\eduar\Desktop\Psy\PsyConnect
    ```
 
 3. Instale as dependências e inicie o app:
