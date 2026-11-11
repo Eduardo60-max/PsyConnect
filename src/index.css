@@ -2228,6 +2228,26 @@ button {
     padding: max(12px, env(safe-area-inset-top)) 12px calc(124px + env(safe-area-inset-bottom));
   }
 
+  .notif-panel {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 72px);
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    width: auto;
+    max-width: 380px;
+    max-height: min(480px, calc(100dvh - 96px));
+    margin-inline: auto;
+  }
+
+  .notif-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .notif-panel-actions {
+    flex-wrap: wrap;
+  }
+
   .topbar {
     padding: 14px 16px;
     border-radius: 18px;
