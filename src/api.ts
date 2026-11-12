@@ -9,6 +9,7 @@ import type {
   ProChat,
 } from "./types";
 import { Capacitor } from "@capacitor/core";
+import { localRequest } from "./localServer";
 
 const API_BASE_URL = (typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__).replace(/\/+$/, "");
 
@@ -62,15 +63,18 @@ function toPost(raw: RawPost): FeedPost {
   return { ...raw, liked: Boolean(raw.liked) };
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  if (Capacitor.isNativePlatform()) {
-    if (!API_BASE_URL) {
-      throw new Error("Configure BUN_PUBLIC_API_URL com o endereço HTTPS da API antes de gerar o app mobile.");
-    }
-    if (!API_BASE_URL.startsWith("https://")) {
-      throw new Error("A API do app mobile deve usar HTTPS.");
-    }
+function useLocalBackend() {
+  if (Capacitor.isNativePlatform()) return true;
+  try {
+    return window.localStorage.getItem("psyconect_force_local") === "1";
+  } catch {
+    return false;
   }
+}
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  // No app Android os dados ficam no próprio aparelho
+  if (useLocalBackend()) return localRequest<T>(url, options);
 
   const res = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
