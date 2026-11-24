@@ -7,8 +7,6 @@ type ProInboxProps = {
   activeChatId: number;
   onSelect: (id: number) => void;
   onSend: (chatId: number, text: string) => Promise<string | null>;
-  onToggleAuto: (chatId: number, enabled: boolean) => Promise<string | null>;
-  typingIds: number[];
 };
 
 const QUICK_REPLIES = [
@@ -21,14 +19,7 @@ function needsReply(chat: ProChat) {
   return chat.messages.at(-1)?.sender === "them";
 }
 
-export function ProInbox({
-  chats,
-  activeChatId,
-  typingIds,
-  onSelect,
-  onSend,
-  onToggleAuto,
-}: Readonly<ProInboxProps>) {
+export function ProInbox({ chats, activeChatId, onSelect, onSend }: Readonly<ProInboxProps>) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -36,12 +27,11 @@ export function ProInbox({
 
   const active = chats.find(chat => chat.id === activeChatId);
   const messageCount = active?.messages.length ?? 0;
-  const isTyping = active ? typingIds.includes(active.id) : false;
 
   useEffect(() => {
     const element = messagesRef.current;
     if (element) element.scrollTop = element.scrollHeight;
-   }, [activeChatId, messageCount, isTyping]);
+  }, [activeChatId, messageCount]);
 
   const handleSelect = (id: number) => {
     setError("");
@@ -62,17 +52,13 @@ export function ProInbox({
     else setDraft("");
   };
 
-  const handleAuto = async (enabled: boolean) => {
-    if (!active) return;
-    const failure = await onToggleAuto(active.id, enabled);
-    setError(failure ?? "");
-  };
-
   return (
     <main className="screen messages-layout">
       <section className="conversation-list">
         <p className="eyebrow">Pacientes</p>
-        {chats.length === 0 && <p className="comments-empty">Nenhuma conversa ainda.</p>}
+        {chats.length === 0 && (
+          <p className="comments-empty">Nenhuma conversa ainda. Elas aparecem quando um paciente agenda com você.</p>
+        )}
         {chats.map(chat => {
           const waiting = needsReply(chat);
           return (
@@ -87,7 +73,7 @@ export function ProInbox({
               </div>
               <div className="conversation-item-text">
                 <strong>{chat.name}</strong>
-                <span>{chat.auto ? "Resposta automática ligada" : "Resposta automática desligada"}</span>
+                <span>{chat.patientEmail}</span>
                 <p className={waiting ? "unread-preview" : undefined}>
                   {chat.messages.at(-1)?.text ?? "Nenhuma mensagem ainda"}
                 </p>
@@ -113,29 +99,18 @@ export function ProInbox({
                 <strong>{active.name}</strong>
                 <p>{active.patientEmail}</p>
               </div>
-              <label className="auto-toggle">
-                <input type="checkbox" checked={active.auto} onChange={event => handleAuto(event.target.checked)} />{" "}
-                Resposta automática
-              </label>
             </div>
 
             <div className="chat-messages" ref={messagesRef}>
+              {active.messages.length === 0 && (
+                <p className="comments-empty">Ainda não há mensagens. Escreva a primeira.</p>
+              )}
               {active.messages.map(message => (
                 <div key={message.id} className={message.sender === "me" ? "chat-bubble mine" : "chat-bubble"}>
                   <p>{message.text}</p>
                   <span>{message.time}</span>
                 </div>
               ))}
-                            {isTyping && (
-                <div className="chat-bubble typing" aria-live="polite">
-                  <span className="typing-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <small className="typing-label">{active.name} está digitando...</small>
-                </div>
-              )}
             </div>
 
             <div className="quick-replies">
@@ -159,7 +134,6 @@ export function ProInbox({
               </button>
             </form>
             {error && <p className="field-error">{error}</p>}
-            <p className="chat-note">Demonstração: pacientes de exemplo respondem automaticamente.</p>
           </>
         ) : (
           <p className="empty-state">Selecione uma conversa.</p>

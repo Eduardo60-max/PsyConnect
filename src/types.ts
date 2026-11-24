@@ -91,5 +91,4 @@ export type Conversation = {
 
 export type ProChat = Conversation & {
   patientEmail: string;
-  auto: boolean;
 };

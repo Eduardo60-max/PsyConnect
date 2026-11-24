@@ -6,7 +6,6 @@ import {
   listChallengeDays,
   listGroups,
   listPosts,
-  resetDatabase,
   toggleChallengeDay,
   toggleGroupJoin,
   togglePostLike,
@@ -21,27 +20,9 @@ import {
   listBookingsForExpert,
   rescheduleBooking,
   rescheduleBookingAsExpert,
-  resetBookings,
 } from "./bookings";
-import {
-  addAutoReply,
-  addPatientAutoMessage,
-  addPatientMessage,
-  addProMessage,
-  ensurePatientChats,
-  isAutoChat,
-  isDemoPatient,
-  lastSender,
-  listPatientChats,
-  listProChats,
-  recentPatientMessages,
-  recentProReplies,
-  resetChats,
-  setChatAuto,
-} from "./chats";
+import { addPatientMessage, addProMessage, ensureChat, listPatientChats, listProChats } from "./chats";
 import { professionals } from "./data";
-import { pickReply, replyDelayMs } from "./chatbot";
-import { pickPatientReply } from "./patientBot";
 
 const allowedOrigins = new Set(
   (process.env.CORS_ORIGINS ?? "capacitor://localhost,https://localhost")
@@ -97,39 +78,6 @@ function resolvePro(value: unknown): { proId: string; expertId: number } | null 
   return { proId, expertId: Number(proId.replace("prof-", "")) };
 }
 
-// ---- Respostas automáticas dos profissionais ----
-const PERSONA_BY_PRO: Record<string, number> = { "prof-1": 1, "prof-2": 2, "prof-5": 3 };
-const pendingReplies = new Set<ReturnType<typeof setTimeout>>();
-
-function scheduleReply(chatId: number, proId: string, text: string, delay: number) {
-  const timer = setTimeout(() => {
-    pendingReplies.delete(timer);
-    try {
-      if (!isAutoChat(chatId)) return;
-      // se o profissional de verdade respondeu nesse meio tempo, o bot fica quieto
-      if (lastSender(chatId) === "pro") return;
-      const recent = recentProReplies(chatId, 4);
-      addAutoReply(chatId, pickReply(PERSONA_BY_PRO[proId] ?? 0, text, recent), currentTimeLabel());
-    } catch (error) {
-      console.error("Falha ao gravar a resposta automática:", error);
-    }
-  }, delay);
-  pendingReplies.add(timer);
-}
-
-function schedulePatientReply(chatId: number, text: string, delay: number) {
-  const timer = setTimeout(() => {
-    pendingReplies.delete(timer);
-    try {
-      const recent = recentPatientMessages(chatId, 4);
-      addPatientAutoMessage(chatId, pickPatientReply(text, recent), currentTimeLabel());
-    } catch (error) {
-      console.error("Falha ao gravar a resposta do paciente simulado:", error);
-    }
-  }, delay);
-  pendingReplies.add(timer);
-}
-
 const routes = {
   // Serve index.html for all unmatched routes.
   "/*": index,
@@ -137,43 +85,6 @@ const routes = {
   "/api/*": {
     OPTIONS(req: Request) {
       return apiPreflight(req);
-    },
-  },
-
-  "/api/hello": {
-    GET(req: Request) {
-      return apiResponse(req, {
-        message: "Hello, world!",
-        method: "GET",
-      });
-    },
-    PUT(req: Request) {
-      return apiResponse(req, {
-        message: "Hello, world!",
-        method: "PUT",
-      });
-    },
-  },
-
-  "/api/hello/:name": (req: BunRequest<"/api/hello/:name">) => {
-    const name = req.params.name;
-    return apiResponse(req, {
-      message: `Hello, ${name}!`,
-    });
-  },
-
-  // ---- Modo demonstração ----
-  "/api/demo/reset": {
-    POST(req: Request) {
-      if (process.env.DISABLE_DEMO_RESET === "1") {
-        return apiResponse(req, { error: "A restauração de dados está desativada." }, { status: 403 });
-      }
-      for (const timer of pendingReplies) clearTimeout(timer);
-      pendingReplies.clear();
-      resetDatabase();
-      resetBookings();
-      resetChats();
-      return apiResponse(req, { ok: true });
     },
   },
 
@@ -298,6 +209,7 @@ const routes = {
       const expertId = Number(body?.expertId);
       const expertName = cleanText(body?.expertName, 80);
       const reason = cleanText(body?.reason, 500);
+      const patientName = cleanText(body?.patientName, 80);
       if (!Number.isInteger(expertId) || !expertName) {
         return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
       }
@@ -305,7 +217,7 @@ const routes = {
 
       const failure = createBooking({
         email,
-        patientName: cleanText(body?.patientName, 80),
+        patientName,
         expertId,
         expertName,
         expertRole: cleanText(body?.expertRole, 80),
@@ -317,6 +229,11 @@ const routes = {
         reason,
       });
       if (failure) return apiResponse(req, { error: failure.error }, { status: failure.status });
+
+      // Agendar abre a conversa entre paciente e profissional
+      const pro = resolvePro(`prof-${expertId}`);
+      if (pro) ensureChat(email, patientName, pro.proId);
+
       return apiResponse(req, listBookings(email), { status: 201 });
     },
   },
@@ -360,10 +277,8 @@ const routes = {
   // ---- Mensagens (paciente) ----
   "/api/conversations": {
     GET(req: Request) {
-      const params = new URL(req.url).searchParams;
-      const email = normalizeEmail(params.get("email"));
+      const email = normalizeEmail(new URL(req.url).searchParams.get("email"));
       if (!email) return apiResponse(req, { error: "E-mail inválido." }, { status: 400 });
-      ensurePatientChats(email, cleanText(params.get("name"), 80));
       return apiResponse(req, listPatientChats(email));
     },
   },
@@ -382,15 +297,8 @@ const routes = {
       const chat = Number.isInteger(chatId) ? addPatientMessage(email, chatId, text, currentTimeLabel()) : null;
       if (!chat) return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
 
-      // Só responde sozinho se o profissional não assumiu a conversa
-      let delay: number | null = null;
-      if (chat.auto) {
-        delay = replyDelayMs(text);
-        scheduleReply(chatId, chat.proId, text, delay);
-      }
-
       const conversation = listPatientChats(email).find(item => item.id === chatId);
-      return apiResponse(req, { conversation, replyDelayMs: delay }, { status: 201 });
+      return apiResponse(req, { conversation }, { status: 201 });
     },
   },
 
@@ -443,29 +351,10 @@ const routes = {
       if (!text) return apiResponse(req, { error: "A mensagem não pode estar vazia." }, { status: 400 });
       if (text.length > 1000) return apiResponse(req, { error: "A mensagem pode ter no máximo 1000 caracteres." }, { status: 400 });
 
-            const chat = addProMessage(pro.proId, Number(req.params.id), text, currentTimeLabel());
+      const chat = addProMessage(pro.proId, Number(req.params.id), text, currentTimeLabel());
       if (!chat) return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
 
-      // Paciente de exemplo responde sozinho
-      let delay: number | null = null;
-      if (isDemoPatient(chat)) {
-        delay = replyDelayMs(text) + 600;
-        schedulePatientReply(chat.id, text, delay);
-      }
-
-      return apiResponse(req, { chats: listProChats(pro.proId), replyDelayMs: delay }, { status: 201 });
-    },
-  },
-
-  "/api/pro/chats/:id/auto": {
-    async POST(req: BunRequest<"/api/pro/chats/:id/auto">) {
-      const body = await req.json();
-      const pro = resolvePro(body?.proId);
-      if (!pro) return apiResponse(req, { error: "Profissional inválido." }, { status: 400 });
-      if (!setChatAuto(pro.proId, Number(req.params.id), Boolean(body?.enabled))) {
-        return apiResponse(req, { error: "Conversa não encontrada." }, { status: 404 });
-      }
-      return apiResponse(req, listProChats(pro.proId));
+      return apiResponse(req, listProChats(pro.proId), { status: 201 });
     },
   },
 };

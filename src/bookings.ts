@@ -67,42 +67,6 @@ function sortBookings<T extends DbBooking>(rows: T[]): T[] {
   });
 }
 
-// ---- Dados de exemplo (pacientes fictícios) ----
-const DEMO_BOOKINGS = [
-  { id: "demo-booking-1", email: "ana.souza@exemplo.com", patientName: "Ana Souza", expertId: 1, expertName: "Dra. Camila Nogueira", expertRole: "Psicóloga clínica", specialty: "Ansiedade e burnout", price: "R$ 180", accent: "#7c3aed", slot: "Hoje • 18:30", preference: "Online", reason: "Ansiedade antes de reuniões e dificuldade para desligar a mente à noite." },
-  { id: "demo-booking-2", email: "lucas.prado@exemplo.com", patientName: "Lucas Prado", expertId: 1, expertName: "Dra. Camila Nogueira", expertRole: "Psicóloga clínica", specialty: "Ansiedade e burnout", price: "R$ 180", accent: "#7c3aed", slot: "Amanhã • 09:30", preference: "Presencial", reason: "Esgotamento no trabalho e pouca energia ao longo do dia." },
-  { id: "demo-booking-3", email: "carlos.lima@exemplo.com", patientName: "Carlos Lima", expertId: 2, expertName: "Dr. João Pereira", expertRole: "Psicoterapeuta", specialty: "Relacionamentos", price: "R$ 160", accent: "#0f766e", slot: "Hoje • 16:00", preference: "Presencial", reason: "Conflitos frequentes em casa e dificuldade de comunicação." },
-  { id: "demo-booking-4", email: "bia.ramos@exemplo.com", patientName: "Bia Ramos", expertId: 3, expertName: "Dra. Lívia Andrade", expertRole: "Neuropsicóloga", specialty: "Autoconhecimento", price: "R$ 200", accent: "#be123c", slot: "Quarta • 14:00", preference: "Online", reason: "Quero entender meu padrão de foco e procrastinação." },
-];
-
-function seedDemoBookings() {
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO bookings (id, email, patientName, expertId, expertName, expertRole, specialty, price, accent, slot, preference, reason, status, createdAt)
-     VALUES ($id, $email, $patientName, $expertId, $expertName, $expertRole, $specialty, $price, $accent, $slot, $preference, $reason, 'confirmed', $createdAt)`,
-  );
-  let offset = 0;
-  for (const booking of DEMO_BOOKINGS) {
-    insert.run({
-      $id: booking.id,
-      $email: booking.email,
-      $patientName: booking.patientName,
-      $expertId: booking.expertId,
-      $expertName: booking.expertName,
-      $expertRole: booking.expertRole,
-      $specialty: booking.specialty,
-      $price: booking.price,
-      $accent: booking.accent,
-      $slot: booking.slot,
-      $preference: booking.preference,
-      $reason: booking.reason,
-      $createdAt: Date.now() + offset++,
-    });
-  }
-}
-
-const existing = db.query("SELECT COUNT(*) AS count FROM bookings").get() as { count: number };
-if (existing.count === 0) seedDemoBookings();
-
 // ---- Paciente ----
 export function listBookings(email: string): DbBooking[] {
   const rows = db.query(`SELECT ${COLUMNS} FROM bookings WHERE email = $email`).all({ $email: email }) as DbBooking[];
@@ -213,10 +177,4 @@ export function rescheduleBookingAsExpert(expertId: number, id: string, slot: st
 
   db.prepare("UPDATE bookings SET slot = $slot, status = 'rescheduled' WHERE id = $id").run({ $slot: slot, $id: id });
   return null;
-}
-
-// Usado pelo "Modo demonstração"
-export function resetBookings() {
-  db.run("DELETE FROM bookings");
-  seedDemoBookings();
 }

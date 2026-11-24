@@ -29,7 +29,6 @@ import { AuthGate, type CurrentUser } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";
 import { BreathingExercise } from "./BreathingExercise";
 import { MoodTracker } from "./MoodTracker";
-import { DemoReset } from "./DemoReset";
 import { NotificationBell } from "./NotificationBell";
 import {
   addToList,
@@ -43,6 +42,7 @@ import { avatarInitial } from "./utils";
 import { ProApp } from "./ProApp";
 import { usePolling } from "./usePolling";
 import { diffBookings, newProMessages } from "./liveSync";
+import { TestSessionCard } from "./TestSessionCard";
 
 type Screen = "home" | "specialists" | "booking" | "bookings" | "groups" | "messages";
 
@@ -280,10 +280,11 @@ export function App() {
     setCurrentUser(user);
   };
 
-    // Informa à camada de API quem está logado (mensagens, posts e agendamentos usam isso)
+  // Informa à camada de API quem está logado (mensagens, posts e agendamentos usam isso)
   useEffect(() => {
     setApiUser(currentUser);
   }, [currentUser]);
+
   // Pré-preenche o agendamento com os dados de quem está logado
   useEffect(() => {
     if (!currentUser) return;
@@ -338,7 +339,6 @@ export function App() {
   // ---- Mensagens (carregadas da API) ----
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number>(0);
-  const [typingIds, setTypingIds] = useState<number[]>([]);
   const [unreadIds, setUnreadIds] = useState<number[]>([]);
 
   // Guarda onde o usuário está agora, para decidir se uma resposta nova vira "não lida"
@@ -355,11 +355,11 @@ export function App() {
     );
   }, [activeScreen, activeConversationId]);
 
-    // ---- Atualização ao vivo: respostas reais dos profissionais e mudanças nas sessões ----
-  const liveRef = useRef({ conversations, bookings, typingIds });
+  // ---- Atualização ao vivo: respostas dos profissionais e mudanças nas sessões ----
+  const liveRef = useRef({ conversations, bookings });
   useEffect(() => {
-    liveRef.current = { conversations, bookings, typingIds };
-  }, [conversations, bookings, typingIds]);
+    liveRef.current = { conversations, bookings };
+  }, [conversations, bookings]);
 
   usePolling(Boolean(currentUser) && currentUser?.role !== "pro", 4000, async () => {
     const email = currentUser?.email;
@@ -368,10 +368,7 @@ export function App() {
     const [loadedConversations, loadedBookings] = await Promise.all([fetchConversations(), fetchBookings(email)]);
     const previous = liveRef.current;
 
-    // conversas em "digitando..." já são tratadas pelo waitForReply
-    const arrivals = newProMessages(previous.conversations, loadedConversations).filter(
-      arrival => !previous.typingIds.includes(arrival.conversationId),
-    );
+    const arrivals = newProMessages(previous.conversations, loadedConversations);
     const view = viewRef.current;
 
     for (const arrival of arrivals) {
@@ -399,6 +396,7 @@ export function App() {
       setBookings(loadedBookings);
     }
   });
+
   // ---- Localização ----
   const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
   const [useRealLocation, setUseRealLocation] = useState(false);
@@ -428,7 +426,7 @@ export function App() {
       : (demoLocations.find(location => location.id === selectedLocationId) ?? defaultLocation);
 
   useEffect(() => {
-       if (!currentUser || currentUser.role === "pro") return;
+    if (!currentUser || currentUser.role === "pro") return;
 
     fetchGroups()
       .then(loaded => {
@@ -642,40 +640,6 @@ export function App() {
   };
 
   // ---- Mensagens: ações ----
-  const stopTyping = (conversationId: number) => {
-    setTypingIds(current => current.filter(id => id !== conversationId));
-  };
-
-  // Busca a conversa até a resposta do profissional chegar (tenta algumas vezes)
-  const waitForReply = (conversationId: number, knownLength: number, attempt = 0) => {
-    fetchConversations()
-      .then(loaded => {
-        const conversation = loaded.find(item => item.id === conversationId);
-        const arrived = (conversation?.messages.length ?? 0) > knownLength;
-
-        if (!arrived && attempt < 3) {
-          window.setTimeout(() => waitForReply(conversationId, knownLength, attempt + 1), 1000);
-          return;
-        }
-
-        setConversations(loaded);
-        stopTyping(conversationId);
-
-        const view = viewRef.current;
-        const isViewing = view.screen === "messages" && view.conversationId === conversationId;
-        if (arrived && !isViewing) {
-          setUnreadIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
-          addNotification({
-            kind: "message",
-            title: `${conversation?.name ?? "Profissional"} respondeu`,
-            body: shorten(conversation?.messages.at(-1)?.text ?? "Nova mensagem"),
-            target: { screen: "messages", conversationId },
-          });
-        }
-      })
-      .catch(() => stopTyping(conversationId));
-  };
-
   const handleSendConversationMessage = async (conversationId: number, text: string) => {
     setConversations(current =>
       current.map(conversation =>
@@ -691,13 +655,15 @@ export function App() {
       ),
     );
     try {
-      const { conversation, replyDelayMs } = await sendConversationMessageRequest(conversationId, text);
+      const { conversation } = await sendConversationMessageRequest(conversationId, text);
       setConversations(current => current.map(item => (item.id === conversationId ? conversation : item)));
-      if (replyDelayMs === null) return;
-      setTypingIds(current => (current.includes(conversationId) ? current : [...current, conversationId]));
-      window.setTimeout(() => waitForReply(conversationId, conversation.messages.length), replyDelayMs + 300);
     } catch {
-      // mantém a mensagem otimista se a API falhar
+      // se falhar, volta ao que está salvo no servidor (a mensagem otimista some)
+      fetchConversations()
+        .then(setConversations)
+        .catch(() => {
+          // o próximo ciclo de atualização tenta de novo
+        });
     }
   };
 
@@ -794,6 +760,12 @@ export function App() {
         body: `${selectedExpert.name} • ${selectedSlot} (${formData.preference})`,
         target: { screen: "bookings" },
       });
+      // a conversa com o profissional é criada ao agendar: atualiza a lista
+      fetchConversations()
+        .then(setConversations)
+        .catch(() => {
+          // o próximo ciclo de atualização busca de novo
+        });
     } catch (error) {
       setIsBooked(false);
       setBookingError(error instanceof Error ? error.message : "Não foi possível confirmar o agendamento.");
@@ -860,6 +832,7 @@ export function App() {
     window.localStorage.removeItem("psyconect_user");
     setCurrentUser(null);
     setBookings([]);
+    setConversations([]);
     setNotifStore({ email: "", items: [] });
     setRoomGroupId(null);
     setActiveScreen("home");
@@ -870,7 +843,7 @@ export function App() {
     return <AuthGate onLogin={handleLogin} />;
   }
 
-    if (currentUser.role === "pro") {
+  if (currentUser.role === "pro") {
     return (
       <ProApp
         user={currentUser}
@@ -880,6 +853,7 @@ export function App() {
       />
     );
   }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -1022,6 +996,7 @@ export function App() {
 
             <BreathingExercise />
             <MoodTracker email={currentUser.email} />
+            <TestSessionCard key={currentUser.email} email={currentUser.email} />
 
             {myGroups.length > 0 && (
               <div className="insight-card">
@@ -1358,7 +1333,6 @@ export function App() {
         <MessagesScreen
           conversations={conversations}
           activeConversationId={activeConversationId}
-          typingIds={typingIds}
           unreadIds={unreadIds}
           onSelectConversation={setActiveConversationId}
           onSendMessage={handleSendConversationMessage}
@@ -1388,8 +1362,6 @@ export function App() {
           onClose={() => setIsCreateGroupOpen(false)}
         />
       )}
-
-      <DemoReset />
     </div>
   );
 }

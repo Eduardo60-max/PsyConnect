@@ -8,10 +8,16 @@ import type {
   ProBooking,
   ProChat,
 } from "./types";
-import { Capacitor } from "@capacitor/core";
-import { localRequest } from "./localServer";
 
-const API_BASE_URL = (typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__).replace(/\/+$/, "");
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+  return value.slice(0, end);
+}
+
+const API_BASE_URL = trimTrailingSlashes(
+  typeof __PSYCONNECT_API_URL__ === "undefined" ? "" : __PSYCONNECT_API_URL__,
+);
 
 type RawGroup = {
   id: string;
@@ -30,7 +36,6 @@ type RawPost = Omit<FeedPost, "liked"> & { liked?: number };
 
 export type SendMessageResult = {
   conversation: Conversation;
-  replyDelayMs: number | null;
 };
 
 export type NewBookingPayload = Omit<Booking, "id" | "status" | "createdAt">;
@@ -63,27 +68,23 @@ function toPost(raw: RawPost): FeedPost {
   return { ...raw, liked: Boolean(raw.liked) };
 }
 
-function useLocalBackend() {
-  if (Capacitor.isNativePlatform()) return true;
-  try {
-    return window.localStorage.getItem("psyconect_force_local") === "1";
-  } catch {
-    return false;
-  }
-}
-
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  // No app Android os dados ficam no próprio aparelho
-  if (useLocalBackend()) return localRequest<T>(url, options);
-
   const res = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
   });
+
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Falha na requisição: ${res.status}`);
+    let message = `Falha na requisição: ${res.status}`;
+    try {
+      const body = await res.json();
+      if (typeof body?.error === "string") message = body.error;
+    } catch {
+      // a resposta não veio em JSON: mantém a mensagem padrão
+    }
+    throw new Error(message);
   }
+
   return res.json();
 }
 
@@ -207,9 +208,7 @@ export async function fetchChallengeDays(groupId: string): Promise<number[]> {
 
 export async function fetchConversations(): Promise<Conversation[]> {
   const user = getStoredUser();
-  return request<Conversation[]>(
-    `/api/conversations?email=${encodeURIComponent(user.email)}&name=${encodeURIComponent(user.name)}`,
-  );
+  return request<Conversation[]>(`/api/conversations?email=${encodeURIComponent(user.email)}`);
 }
 
 export async function sendConversationMessageRequest(conversationId: number, text: string): Promise<SendMessageResult> {
@@ -243,25 +242,9 @@ export async function fetchProChats(proId: string): Promise<ProChat[]> {
   return request<ProChat[]>(`/api/pro/chats?proId=${encodeURIComponent(proId)}`);
 }
 
-export type ProSendResult = {
-  chats: ProChat[];
-  replyDelayMs: number | null;
-};
-
-export async function sendProMessageRequest(proId: string, chatId: number, text: string): Promise<ProSendResult> {
-  return request<ProSendResult>(`/api/pro/chats/${chatId}/messages`, {
+export async function sendProMessageRequest(proId: string, chatId: number, text: string): Promise<ProChat[]> {
+  return request<ProChat[]>(`/api/pro/chats/${chatId}/messages`, {
     method: "POST",
     body: JSON.stringify({ proId, text }),
   });
-}
-
-export async function setProAutoRequest(proId: string, chatId: number, enabled: boolean): Promise<ProChat[]> {
-  return request<ProChat[]>(`/api/pro/chats/${chatId}/auto`, {
-    method: "POST",
-    body: JSON.stringify({ proId, enabled }),
-  });
-}
-
-export async function resetDemoRequest(): Promise<void> {
-  await request<{ ok: boolean }>("/api/demo/reset", { method: "POST" });
 }

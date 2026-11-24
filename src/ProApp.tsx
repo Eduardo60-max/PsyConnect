@@ -9,7 +9,6 @@ import {
   proCancelBookingRequest,
   proRescheduleBookingRequest,
   sendProMessageRequest,
-  setProAutoRequest,
 } from "./api";
 import { usePolling } from "./usePolling";
 import { ProAgenda } from "./ProAgenda";
@@ -46,7 +45,6 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
   const [activeChatId, setActiveChatId] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [typingIds, setTypingIds] = useState<number[]>([]);
 
   const refresh = async () => {
     const [loadedBookings, loadedChats, loadedGroups] = await Promise.all([
@@ -95,34 +93,12 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
     }
   };
 
-    const handleSend = async (chatId: number, text: string): Promise<string | null> => {
+  const handleSend = async (chatId: number, text: string): Promise<string | null> => {
     try {
-      const result = await sendProMessageRequest(proId, chatId, text);
-      setChats(result.chats);
-
-      if (result.replyDelayMs !== null) {
-        setTypingIds(current => (current.includes(chatId) ? current : [...current, chatId]));
-        window.setTimeout(async () => {
-          try {
-            setChats(await fetchProChats(proId));
-          } catch {
-            // o próximo ciclo de atualização busca de novo
-          }
-          setTypingIds(current => current.filter(id => id !== chatId));
-        }, result.replyDelayMs + 400);
-      }
+      setChats(await sendProMessageRequest(proId, chatId, text));
       return null;
     } catch (err) {
       return failure(err, "Não foi possível enviar a mensagem.");
-    }
-  };
-
-  const handleToggleAuto = async (chatId: number, enabled: boolean): Promise<string | null> => {
-    try {
-      setChats(await setProAutoRequest(proId, chatId, enabled));
-      return null;
-    } catch (err) {
-      return failure(err, "Não foi possível alterar a resposta automática.");
     }
   };
 
@@ -287,14 +263,7 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
       {!loading && !error && tab === "groups" && <ProGroups groups={myGroups} proName={user.name} />}
 
       {!loading && !error && tab === "messages" && (
-        <ProInbox
-          chats={chats}
-          activeChatId={selectedChatId}
-          onSelect={setActiveChatId}
-          onSend={handleSend}
-          onToggleAuto={handleToggleAuto}
-          typingIds={typingIds}
-        />
+        <ProInbox chats={chats} activeChatId={selectedChatId} onSelect={setActiveChatId} onSend={handleSend} />
       )}
     </div>
   );

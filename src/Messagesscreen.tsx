@@ -6,7 +6,6 @@ import { CrisisNotice } from "./CrisisNotice";
 type MessagesScreenProps = {
   conversations: Conversation[];
   activeConversationId: number;
-  typingIds: number[];
   unreadIds: number[];
   onSelectConversation: (id: number) => void;
   onSendMessage: (conversationId: number, text: string) => void;
@@ -20,22 +19,22 @@ function previewText(text: string | undefined, max = 60) {
 export function MessagesScreen({
   conversations,
   activeConversationId,
-  typingIds,
   unreadIds,
   onSelectConversation,
   onSendMessage,
 }: Readonly<MessagesScreenProps>) {
   const [draft, setDraft] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
-  const activeConversation = conversations.find(conversation => conversation.id === activeConversationId);
-  const isTyping = typingIds.includes(activeConversationId);
+  const activeConversation =
+    conversations.find(conversation => conversation.id === activeConversationId) ?? conversations[0];
+  const activeId = activeConversation?.id ?? 0;
   const messageCount = activeConversation?.messages.length ?? 0;
 
   // Mantém a conversa rolada até a última mensagem
   useEffect(() => {
     const element = messagesRef.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [activeConversationId, messageCount, isTyping]);
+  }, [activeId, messageCount]);
 
   const handleSend = (event: SyntheticEvent) => {
     event.preventDefault();
@@ -48,16 +47,18 @@ export function MessagesScreen({
     <main className="screen messages-layout">
       <section className="conversation-list">
         <p className="eyebrow">Mensagens</p>
+        {conversations.length === 0 && (
+          <p className="comments-empty">
+            Você ainda não tem conversas. Elas aparecem depois que você agenda uma sessão com um profissional.
+          </p>
+        )}
         {conversations.map(conversation => {
           const unread = unreadIds.includes(conversation.id);
-          const typing = typingIds.includes(conversation.id);
           return (
             <button
               key={conversation.id}
               type="button"
-              className={
-                conversation.id === activeConversationId ? "conversation-item active" : "conversation-item"
-              }
+              className={conversation.id === activeId ? "conversation-item active" : "conversation-item"}
               onClick={() => onSelectConversation(conversation.id)}
             >
               <div className="avatar avatar-small" style={{ backgroundColor: conversation.accent }}>
@@ -66,13 +67,9 @@ export function MessagesScreen({
               <div className="conversation-item-text">
                 <strong>{conversation.name}</strong>
                 <span>{conversation.context}</span>
-                {typing ? (
-                  <p className="typing-preview">digitando...</p>
-                ) : (
-                  <p className={unread ? "unread-preview" : undefined}>
-                    {previewText(conversation.messages.at(-1)?.text)}
-                  </p>
-                )}
+                <p className={unread ? "unread-preview" : undefined}>
+                  {previewText(conversation.messages.at(-1)?.text)}
+                </p>
               </div>
               {unread && <span className="unread-badge" aria-label="Mensagem nova">1</span>}
             </button>
@@ -90,28 +87,20 @@ export function MessagesScreen({
               </div>
               <div>
                 <strong>{activeConversation.name}</strong>
-                <p>{isTyping ? "digitando..." : activeConversation.context}</p>
+                <p>{activeConversation.context}</p>
               </div>
             </div>
 
             <div className="chat-messages" ref={messagesRef}>
+              {activeConversation.messages.length === 0 && (
+                <p className="comments-empty">Ainda não há mensagens. Escreva a primeira.</p>
+              )}
               {activeConversation.messages.map(message => (
                 <div key={message.id} className={message.sender === "me" ? "chat-bubble mine" : "chat-bubble"}>
                   <p>{message.text}</p>
                   <span>{message.time}</span>
                 </div>
               ))}
-
-              {isTyping && (
-                <div className="chat-bubble typing" aria-live="polite">
-                  <span className="typing-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <small className="typing-label">{activeConversation.name} está digitando...</small>
-                </div>
-              )}
             </div>
 
             <form onSubmit={handleSend} className="chat-input-row">
@@ -126,10 +115,10 @@ export function MessagesScreen({
                 Enviar
               </button>
             </form>
-            <p className="chat-note">Demonstração: as respostas dos profissionais são automáticas.</p>
+            <p className="chat-note">Mensagens não substituem atendimento de emergência. Em crise, ligue 188 (CVV).</p>
           </>
         ) : (
-          <p className="empty-state">Selecione uma conversa para começar.</p>
+          <p className="empty-state">Agende uma sessão para começar a conversar com um profissional.</p>
         )}
       </section>
     </main>
