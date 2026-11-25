@@ -1636,25 +1636,6 @@ button {
   }
 }
 
-/* Modo demonstração */
-.demo-footer {
-  margin-top: 32px;
-  text-align: center;
-}
-
-.demo-reset-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  text-decoration: underline;
-  opacity: 0.7;
-}
-
-.demo-reset-btn:hover {
-  opacity: 1;
-}
-
 /* Prévia da conversa: nunca estica o layout */
 .messages-layout {
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
@@ -2617,4 +2598,230 @@ button {
   .expert-card {
     padding: 18px;
   }
+}
+
+/* Novos estilos Fase 2: Rede, Moderação, Perfil, Admin, Agenda e PANAS */
+.network-error-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+}
+
+.network-error-box p {
+  margin: 0;
+}
+
+.auth-banner-error {
+  margin-bottom: 14px;
+}
+
+.auth-confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-doctor-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.pending-doctor-card {
+  width: 100%;
+  max-width: 540px;
+}
+
+.pending-rejected {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: transparent;
+}
+
+.active-profile-btn {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.feed-card-head-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.feed-actions-wrap {
+  flex-wrap: wrap;
+}
+
+.feed-actions-left,
+.feed-moderation-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.danger-link {
+  color: var(--danger);
+}
+
+.muted-link {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.comment-action-link {
+  font-size: 0.75rem;
+}
+
+.payment-test-notice {
+  margin-bottom: 14px;
+}
+
+.slot-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.availability-manager {
+  margin-bottom: 20px;
+}
+
+.slot-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+
+.slot-add-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-body);
+}
+
+.slot-add-form input {
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--surface-alt);
+  color: var(--text-strong);
+}
+
+.slot-chip-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-border);
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.slot-chip.booked {
+  background: var(--surface-subtle);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+.slot-chip small {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+
+.slot-remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  font-weight: 700;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.profile-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.blocked-section h4 {
+  margin: 10px 0 6px;
+  color: var(--text-strong);
+}
+
+.blocked-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface-alt);
+}
+
+.survey-table-wrap {
+  overflow-x: auto;
+}
+
+.survey-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.survey-table th,
+.survey-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.survey-table th {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.panas-legend-sticky {
+  position: sticky;
+  top: -8px;
+  z-index: 2;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+}
+
+.panas-consent-box {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
 }

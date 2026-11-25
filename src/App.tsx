@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import "./index.css";
-import type { Booking, CommunityGroup, Conversation, FeedPost as CommunityFeedPost } from "./types";
-import { categories, professionals } from "./data";
+import type {
+  Booking,
+  ChallengeRankEntry,
+  CommunityGroup,
+  Conversation,
+  CurrentUser,
+  FeedPost,
+  Professional,
+} from "./types";
+import { categories, SPECIALTY_BY_THEME } from "./data";
 import {
   addGroupPostRequest,
   cancelBookingRequest,
@@ -9,27 +17,36 @@ import {
   createGroupRequest,
   fetchBookings,
   fetchChallengeDays,
+  fetchChallengeRanking,
   fetchConversations,
   fetchGroupPosts,
   fetchGroups,
+  fetchHomeFeed,
+  fetchProfessionals,
   rescheduleBookingRequest,
   sendConversationMessageRequest,
-  setApiUser,
   toggleChallengeDayRequest,
   toggleGroupJoinRequest,
   togglePostLikeRequest,
 } from "./api";
+import { logoutRequest, restoreSessionUser } from "./authService";
+import { loadRuntimeConfig, validateApiBaseUrl } from "./runtimeConfig";
+import { subscribeAndroidBackButton, subscribeDeepLinks } from "./nativeBridge";
 import { GroupsScreen } from "./GroupsScreen";
 import { GroupDetailModal } from "./GroupDetailModal";
 import { GroupCreateModal } from "./GroupCreateModal";
 import { GroupRoom } from "./GroupRoom";
 import { MessagesScreen } from "./MessagesScreen";
 import { MyBookings } from "./MyBookings";
-import { AuthGate, type CurrentUser } from "./AuthGate";
+import { AuthGate } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";
 import { BreathingExercise } from "./BreathingExercise";
 import { MoodTracker } from "./MoodTracker";
 import { NotificationBell } from "./NotificationBell";
+import { PostFeedList } from "./PostFeedList";
+import { PendingDoctorScreen } from "./PendingDoctorScreen";
+import { ProfileScreen } from "./ProfileScreen";
+import { AdminApp } from "./AdminApp";
 import {
   addToList,
   loadNotifications,
@@ -44,43 +61,11 @@ import { usePolling } from "./usePolling";
 import { diffBookings, newProMessages } from "./liveSync";
 import { TestSessionCard } from "./TestSessionCard";
 
-type Screen = "home" | "specialists" | "booking" | "bookings" | "groups" | "messages";
+type Screen = "home" | "specialists" | "booking" | "bookings" | "groups" | "messages" | "profile";
 
-type Expert = {
-  id: number;
-  name: string;
-  role: string;
-  specialty: string;
-  experience: string;
-  price: string;
-  availability: string;
-  description: string;
-  accent: string;
-};
-
-type FormState = {
-  name: string;
-  email: string;
+type BookingFormState = {
   reason: string;
   preference: string;
-};
-
-type GoalGroup = {
-  id: string;
-  label: string;
-  description: string;
-  accent: string;
-};
-
-type FeedPost = {
-  id: number;
-  author: string;
-  handle: string;
-  group: string;
-  body: string;
-  time: string;
-  likes: string;
-  comments: string;
 };
 
 type NotificationStore = {
@@ -88,142 +73,12 @@ type NotificationStore = {
   items: AppNotification[];
 };
 
-const experts: Expert[] = [
-  {
-    id: 1,
-    name: "Dra. Camila Nogueira",
-    role: "Psicóloga clínica",
-    specialty: "Ansiedade e burnout",
-    experience: "10 anos",
-    price: "R$ 180",
-    availability: "Hoje • 16:00",
-    description: "Especialista em atendimento humanizado para adultos que precisam reorganizar o ritmo da vida e recuperar o equilíbrio emocional.",
-    accent: "#7c3aed",
-  },
-  {
-    id: 2,
-    name: "Dr. João Pereira",
-    role: "Psicoterapeuta",
-    specialty: "Relacionamentos",
-    experience: "8 anos",
-    price: "R$ 160",
-    availability: "Amanhã • 09:30",
-    description: "Acompanha casais e indivíduos em processos de comunicação, limites, autoestima e reconexão emocional.",
-    accent: "#0f766e",
-  },
-  {
-    id: 3,
-    name: "Dra. Lívia Andrade",
-    role: "Neuropsicóloga",
-    specialty: "Autoconhecimento",
-    experience: "12 anos",
-    price: "R$ 200",
-    availability: "Quarta • 14:00",
-    description: "Trabalha com estratégias práticas para aumentar clareza mental, foco e bem-estar no cotidiano.",
-    accent: "#be123c",
-  },
-];
-
-const availabilitySlots = ["Hoje • 16:00", "Hoje • 18:30", "Amanhã • 09:30", "Quarta • 14:00"];
-
-// Qual especialista indicar para cada tema do feed
-const supportExpertByTheme: Record<string, number> = {
-  ansiedade: 1,
-  relacionamentos: 2,
-  autoconhecimento: 3,
-  sono: 1,
-};
-
-const groups: GoalGroup[] = [
-  { id: "all", label: "Todos", description: "Explore tudo", accent: "#4f46e5" },
-  { id: "ansiedade", label: "Ansiedade", description: "Respiração e calma", accent: "#8b5cf6" },
-  { id: "autoconhecimento", label: "Autoconhecimento", description: "Entender seu ritmo", accent: "#0f766e" },
-  { id: "relacionamentos", label: "Relacionamentos", description: "Limites e comunicação", accent: "#db2777" },
-  { id: "sono", label: "Sono", description: "Descanso e recuperação", accent: "#f59e0b" },
-];
-
-// Cidades usadas para demonstrar a recomendação por localização sem depender
-// de o navegador conceder permissão de GPS ao vivo durante a apresentação.
-const defaultLocation = { id: "salvador", label: "Salvador, BA", lat: -12.9777, lng: -38.5016 };
-
-const demoLocations = [
-  defaultLocation,
-  { id: "recife", label: "Recife, PE", lat: -8.0476, lng: -34.877 },
-  { id: "sao-paulo", label: "São Paulo, SP", lat: -23.5505, lng: -46.6333 },
-  { id: "rio-de-janeiro", label: "Rio de Janeiro, RJ", lat: -22.9068, lng: -43.1729 },
-  { id: "fortaleza", label: "Fortaleza, CE", lat: -3.7319, lng: -38.5267 },
-];
-
-const feedPosts: FeedPost[] = [
-  {
-    id: 1,
-    author: "Maya",
-    handle: "@maya",
-    group: "ansiedade",
-    body: "Hoje eu aprendi que não preciso resolver tudo de uma vez. Um passo de cada vez já é progresso.",
-    time: "10 min",
-    likes: "312",
-    comments: "19",
-  },
-  {
-    id: 2,
-    author: "Léo",
-    handle: "@leo",
-    group: "autoconhecimento",
-    body: "Identificar o que me esgota tem sido mais útil do que tentar aguentar tudo em silêncio.",
-    time: "25 min",
-    likes: "188",
-    comments: "11",
-  },
-  {
-    id: 3,
-    author: "Clara",
-    handle: "@clara",
-    group: "relacionamentos",
-    body: "Estabelecer limites não é frieza, é cuidado. Estou aprendendo a me respeitar mais.",
-    time: "1 h",
-    likes: "244",
-    comments: "27",
-  },
-  {
-    id: 4,
-    author: "Ravi",
-    handle: "@ravi",
-    group: "sono",
-    body: "Minha rotina de descanso ficou bem mais leve quando reduzi telas antes de dormir.",
-    time: "2 h",
-    likes: "95",
-    comments: "6",
-  },
-];
-
-const initialExpert = experts[0] as Expert;
-
 function normalizeText(text: string) {
   return text.toLowerCase().normalize("NFD").replaceAll(/[\u0300-\u036f]/g, "");
 }
 
-function priceToNumber(price: string) {
-  return Number(price.replaceAll(/\D/g, ""));
-}
-
-function clockLabel() {
-  return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bahia" });
-}
-
 function shorten(text: string, max = 80) {
   return text.length > max ? `${text.slice(0, max).trimEnd()}...` : text;
-}
-
-// Gera uma distância "simulada" mas estável (o mesmo grupo sempre calcula a
-// mesma distância enquanto a localização do usuário não mudar).
-function simulatedDistanceKm(seed: string, lat: number, lng: number) {
-  const base = `${seed}-${lat.toFixed(2)}-${lng.toFixed(2)}`;
-  let hash = 0;
-  for (let i = 0; i < base.length; i++) {
-    hash = (hash * 31 + (base.codePointAt(i) ?? 0)) >>> 0;
-  }
-  return Number((0.4 + (hash % 940) / 100).toFixed(1));
 }
 
 function When({ condition, children }: { condition: boolean; children: ReactNode }) {
@@ -244,19 +99,75 @@ export function App() {
     window.localStorage.setItem("psyconect_theme", theme);
   }, [theme]);
 
+  // ---- Inicialização, sessão e deep links ----
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [startupError, setStartupError] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "recovery">("login");
+  const [authNotice, setAuthNotice] = useState("");
+  const [authExternalError, setAuthExternalError] = useState("");
+
+  const bootstrapSession = useCallback(async () => {
+    setAuthChecking(true);
+    setStartupError("");
+    const apiErr = validateApiBaseUrl();
+    if (apiErr) {
+      setStartupError(apiErr);
+      setAuthChecking(false);
+      return;
+    }
+
+    try {
+      await loadRuntimeConfig();
+      const restored = await restoreSessionUser();
+      setCurrentUser(restored);
+    } catch (err) {
+      setStartupError(err instanceof Error ? err.message : "Não foi possível conectar ao servidor.");
+    } finally {
+      setAuthChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void bootstrapSession();
+  }, [bootstrapSession]);
+
+  useEffect(() => {
+    return subscribeDeepLinks(async result => {
+      if (result.error) {
+        setAuthExternalError(result.error);
+        setAuthMode("login");
+        return;
+      }
+      if (result.isRecovery) {
+        setAuthMode("recovery");
+        setCurrentUser(null);
+        return;
+      }
+      if (result.message) {
+        setAuthNotice(result.message);
+      }
+      try {
+        const restored = await restoreSessionUser();
+        if (restored) setCurrentUser(restored);
+      } catch {
+        // usuário pode entrar normalmente com e-mail e senha
+      }
+    });
+  }, []);
+
   // ---- Navegação e agendamento ----
   const [activeScreen, setActiveScreen] = useState<Screen>("home");
-  const [selectedExpert, setSelectedExpert] = useState<Expert>(initialExpert);
-  const [activeGroup, setActiveGroup] = useState("all");
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [professionalsError, setProfessionalsError] = useState("");
+  const [selectedDoctorId, setSelectedDoctorId] = useState("");
+  const [activeFeedTheme, setActiveFeedTheme] = useState("all");
   const [isBooked, setIsBooked] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [slotError, setSlotError] = useState(false);
   const [expertQuery, setExpertQuery] = useState("");
-  const [maxPrice, setMaxPrice] = useState("all");
-  const [likedHomePosts, setLikedHomePosts] = useState<number[]>([]);
-  const [formData, setFormData] = useState<FormState>({
-    name: "",
-    email: "",
+  const [onlyWithSlots, setOnlyWithSlots] = useState(false);
+  const [formData, setFormData] = useState<BookingFormState>({
     reason: "",
     preference: "Online",
   });
@@ -268,34 +179,24 @@ export function App() {
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [bookingError, setBookingError] = useState("");
 
-  // ---- Usuário ----
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(() => {
-    if (typeof window === "undefined") return null;
-    const stored = window.localStorage.getItem("psyconect_user");
-    return stored ? (JSON.parse(stored) as CurrentUser) : null;
-  });
+  // ---- Feed e grupos ----
+  const [homePosts, setHomePosts] = useState<FeedPost[]>([]);
+  const [homeLoading, setHomeLoading] = useState(true);
+  const [homeError, setHomeError] = useState("");
+  const [communityGroups, setCommunityGroups] = useState<CommunityGroup[]>([]);
+  const [postsByGroup, setPostsByGroup] = useState<Record<string, FeedPost[]>>({});
+  const [completedDaysByGroup, setCompletedDaysByGroup] = useState<Record<string, number[]>>({});
+  const [rankingByGroup, setRankingByGroup] = useState<Record<string, ChallengeRankEntry[]>>({});
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [roomGroupId, setRoomGroupId] = useState<string | null>(null);
+  const [welcomeGroupId, setWelcomeGroupId] = useState<string | null>(null);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  const [groupsError, setGroupsError] = useState("");
+  const [hasActiveTestSession, setHasActiveTestSession] = useState(false);
 
-  const handleLogin = (user: CurrentUser) => {
-    window.localStorage.setItem("psyconect_user", JSON.stringify(user));
-    setCurrentUser(user);
-  };
-
-  // Informa à camada de API quem está logado (mensagens, posts e agendamentos usam isso)
-  useEffect(() => {
-    setApiUser(currentUser);
-  }, [currentUser]);
-
-  // Pré-preenche o agendamento com os dados de quem está logado
-  useEffect(() => {
-    if (!currentUser) return;
-    setFormData(current => ({
-      ...current,
-      name: currentUser.name,
-      email: currentUser.email,
-    }));
-  }, [currentUser]);
-
-  // ---- Notificações (guardadas no navegador, por e-mail) ----
+  // ---- Notificações ----
   const [notifStore, setNotifStore] = useState<NotificationStore>({ email: "", items: [] });
 
   useEffect(() => {
@@ -324,30 +225,16 @@ export function App() {
     setNotifStore(current => ({ ...current, items: [] }));
   };
 
-  // ---- Comunidade / grupos (carregados da API) ----
-  const [communityGroups, setCommunityGroups] = useState<CommunityGroup[]>([]);
-  const [postsByGroup, setPostsByGroup] = useState<Record<string, CommunityFeedPost[]>>({});
-  const [completedDaysByGroup, setCompletedDaysByGroup] = useState<Record<string, number[]>>({});
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  const [roomGroupId, setRoomGroupId] = useState<string | null>(null);
-  const [welcomeGroupId, setWelcomeGroupId] = useState<string | null>(null);
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
-  const [groupsError, setGroupsError] = useState("");
-
-  // ---- Mensagens (carregadas da API) ----
+  // ---- Mensagens ----
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<number>(0);
   const [unreadIds, setUnreadIds] = useState<number[]>([]);
 
-  // Guarda onde o usuário está agora, para decidir se uma resposta nova vira "não lida"
   const viewRef = useRef({ screen: activeScreen, conversationId: activeConversationId });
   useEffect(() => {
     viewRef.current = { screen: activeScreen, conversationId: activeConversationId };
   }, [activeScreen, activeConversationId]);
 
-  // Ao abrir uma conversa, ela deixa de ser "não lida"
   useEffect(() => {
     if (activeScreen !== "messages" || !activeConversationId) return;
     setUnreadIds(current =>
@@ -355,17 +242,39 @@ export function App() {
     );
   }, [activeScreen, activeConversationId]);
 
-  // ---- Atualização ao vivo: respostas dos profissionais e mudanças nas sessões ----
+  // Botão Voltar físico do Android
+  useEffect(() => {
+    return subscribeAndroidBackButton(() => {
+      if (isCreateGroupOpen) {
+        setIsCreateGroupOpen(false);
+        return true;
+      }
+      if (selectedGroupId) {
+        setSelectedGroupId(null);
+        return true;
+      }
+      if (roomGroupId) {
+        setRoomGroupId(null);
+        return true;
+      }
+      if (activeScreen !== "home") {
+        setActiveScreen("home");
+        return true;
+      }
+      return false;
+    });
+  }, [activeScreen, isCreateGroupOpen, selectedGroupId, roomGroupId]);
+
+  const isPatientSession = currentUser?.role === "paciente";
+
+  // ---- Atualização ao vivo ----
   const liveRef = useRef({ conversations, bookings });
   useEffect(() => {
     liveRef.current = { conversations, bookings };
   }, [conversations, bookings]);
 
-  usePolling(Boolean(currentUser) && currentUser?.role !== "pro", 4000, async () => {
-    const email = currentUser?.email;
-    if (!email) return;
-
-    const [loadedConversations, loadedBookings] = await Promise.all([fetchConversations(), fetchBookings(email)]);
+  usePolling(Boolean(isPatientSession), 4000, async () => {
+    const [loadedConversations, loadedBookings] = await Promise.all([fetchConversations(), fetchBookings()]);
     const previous = liveRef.current;
 
     const arrivals = newProMessages(previous.conversations, loadedConversations);
@@ -397,46 +306,31 @@ export function App() {
     }
   });
 
-  // ---- Localização ----
-  const [selectedLocationId, setSelectedLocationId] = useState(defaultLocation.id);
-  const [useRealLocation, setUseRealLocation] = useState(false);
-  const [realLocation, setRealLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<"idle" | "loading" | "granted" | "denied">("idle");
+  // ---- Carregamento inicial do paciente ----
+  const loadPatientData = useCallback(() => {
+    if (!isPatientSession) return;
 
-  const handleUseRealLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationStatus("denied");
-      return;
-    }
-    setLocationStatus("loading");
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        setRealLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
-        setUseRealLocation(true);
-        setLocationStatus("granted");
-      },
-      () => setLocationStatus("denied"),
-      { timeout: 8000 },
-    );
-  };
+    setHomeLoading(true);
+    setHomeError("");
+    fetchHomeFeed("all")
+      .then(setHomePosts)
+      .catch(err => setHomeError(err instanceof Error ? err.message : "Não foi possível carregar o mural."))
+      .finally(() => setHomeLoading(false));
 
-  const effectiveLocation =
-    useRealLocation && realLocation
-      ? realLocation
-      : (demoLocations.find(location => location.id === selectedLocationId) ?? defaultLocation);
-
-  useEffect(() => {
-    if (!currentUser || currentUser.role === "pro") return;
-
+    setIsLoadingGroups(true);
+    setGroupsError("");
     fetchGroups()
+      .then(setCommunityGroups)
+      .catch(error => setGroupsError(String(error.message ?? error)))
+      .finally(() => setIsLoadingGroups(false));
+
+    setProfessionalsError("");
+    fetchProfessionals()
       .then(loaded => {
-        setCommunityGroups(loaded);
-        setIsLoadingGroups(false);
+        setProfessionals(loaded);
+        setSelectedDoctorId(curr => (curr && loaded.some(p => p.id === curr) ? curr : (loaded[0]?.id ?? "")));
       })
-      .catch(error => {
-        setGroupsError(String(error.message ?? error));
-        setIsLoadingGroups(false);
-      });
+      .catch(err => setProfessionalsError(err instanceof Error ? err.message : "Erro ao carregar especialistas."));
 
     fetchConversations()
       .then(loaded => {
@@ -444,31 +338,34 @@ export function App() {
         setActiveConversationId(loaded[0]?.id ?? 0);
       })
       .catch(() => {
-        // mensagens ficam vazias se a API falhar
+        // próximo ciclo tenta novamente
       });
 
     setBookingsLoading(true);
     setBookingsError("");
-    fetchBookings(currentUser.email)
+    fetchBookings()
       .then(setBookings)
-      .catch(() => setBookingsError("Não foi possível carregar suas sessões agora."))
+      .catch(err => setBookingsError(err instanceof Error ? err.message : "Não foi possível carregar suas sessões."))
       .finally(() => setBookingsLoading(false));
-  }, [currentUser]);
+  }, [isPatientSession]);
 
-  // ---- Grupos: ações ----
+  useEffect(() => {
+    loadPatientData();
+  }, [loadPatientData]);
+
+  // ---- Grupos & posts ----
   const loadGroupData = (groupId: string) => {
-    if (!postsByGroup[groupId]) {
-      fetchGroupPosts(groupId)
-        .then(posts => setPostsByGroup(current => ({ ...current, [groupId]: posts })))
-        .catch(() => setPostsByGroup(current => ({ ...current, [groupId]: [] })));
-    }
-    if (!completedDaysByGroup[groupId]) {
-      fetchChallengeDays(groupId)
-        .then(days => setCompletedDaysByGroup(current => ({ ...current, [groupId]: days })))
-        .catch(() => {
-          // sem dias concluídos se a API falhar
-        });
-    }
+    fetchGroupPosts(groupId)
+      .then(posts => setPostsByGroup(current => ({ ...current, [groupId]: posts })))
+      .catch(() => setPostsByGroup(current => ({ ...current, [groupId]: [] })));
+
+    fetchChallengeDays(groupId)
+      .then(days => setCompletedDaysByGroup(current => ({ ...current, [groupId]: days })))
+      .catch(() => {});
+
+    fetchChallengeRanking(groupId)
+      .then(ranking => setRankingByGroup(current => ({ ...current, [groupId]: ranking })))
+      .catch(() => {});
   };
 
   const handleEnterRoom = (groupId: string, welcome = false) => {
@@ -497,7 +394,6 @@ export function App() {
       if (roomGroupId === groupId) setRoomGroupId(null);
     } else {
       handleEnterRoom(groupId, true);
-
       if (group) {
         addNotification({
           kind: "group",
@@ -505,38 +401,27 @@ export function App() {
           body: "Se apresente no mural para conhecer o grupo.",
           target: { screen: "groups", groupId },
         });
-
-        const admin = professionals.find(professional => professional.id === group.adminId);
-        if (admin) {
-          window.setTimeout(() => {
-            addNotification({
-              kind: "group",
-              title: `Boas-vindas de ${admin.name}`,
-              body: `Seja bem-vindo(a) a ${group.name}! Conte um pouco sobre você no mural.`,
-              target: { screen: "groups", groupId },
-            });
-          }, 8000);
-        }
       }
     }
 
     const toggle = (current: CommunityGroup[]) =>
       current.map(item =>
         item.id === groupId
-          ? { ...item, joined: !item.joined, members: item.joined ? item.members - 1 : item.members + 1 }
+          ? { ...item, joined: !item.joined, members: Math.max(0, item.joined ? item.members - 1 : item.members + 1) }
           : item,
       );
 
     setCommunityGroups(toggle);
     try {
-      await toggleGroupJoinRequest(groupId);
+      const updated = await toggleGroupJoinRequest(groupId);
+      setCommunityGroups(current =>
+        current.map(item => (item.id === groupId ? { ...item, joined: updated.joined, members: updated.members } : item)),
+      );
     } catch {
-      // reverte se a API falhar
       setCommunityGroups(toggle);
     }
   };
 
-  // Avisa quando uma medalha nova é desbloqueada
   const notifyNewMedals = (group: CommunityGroup, previous: number[], next: number[]) => {
     if (!group.durationDays) return;
     const before = computeChallengeStats(previous, group.durationDays);
@@ -559,111 +444,103 @@ export function App() {
       : [...previous, day].sort((a, b) => a - b);
 
     setCompletedDaysByGroup(current => ({ ...current, [groupId]: next }));
-
     const group = communityGroups.find(item => item.id === groupId);
     if (group) notifyNewMedals(group, previous, next);
 
     try {
       const days = await toggleChallengeDayRequest(groupId, day);
       setCompletedDaysByGroup(current => ({ ...current, [groupId]: days }));
+      const ranking = await fetchChallengeRanking(groupId);
+      setRankingByGroup(current => ({ ...current, [groupId]: ranking }));
     } catch {
-      // mantém o estado otimista se a API falhar
+      setCompletedDaysByGroup(current => ({ ...current, [groupId]: previous }));
     }
   };
 
   const handleAddGroupPost = async (groupId: string, body: string) => {
-    const authorName = currentUser?.name ?? "Você";
-    const firstName = authorName.trim().split(/\s+/)[0] ?? "voce";
-    const optimisticPost: CommunityFeedPost = {
-      id: `temp-${Date.now()}`,
-      author: authorName,
-      handle: `@${firstName.toLowerCase()}`,
-      group: groupId,
-      body,
-      time: clockLabel(),
-      likes: 0,
-      comments: 0,
-      liked: false,
-    };
-    setPostsByGroup(current => ({ ...current, [groupId]: [optimisticPost, ...(current[groupId] ?? [])] }));
+    if (!currentUser) return;
     try {
       const posts = await addGroupPostRequest(groupId, body);
       setPostsByGroup(current => ({ ...current, [groupId]: posts }));
+      fetchHomeFeed("all").then(setHomePosts).catch(() => {});
     } catch {
-      // mantém o post otimista se a API falhar
+      // mantém estado atual em erro transitório
     }
   };
 
-  const handleToggleGroupPostLike = async (groupId: string, postId: string) => {
-    const applyToggle = (current: Record<string, CommunityFeedPost[]>) => ({
-      ...current,
-      [groupId]: (current[groupId] ?? []).map(post =>
-        post.id === postId
-          ? { ...post, liked: !post.liked, likes: post.liked ? Math.max(0, post.likes - 1) : post.likes + 1 }
-          : post,
-      ),
-    });
+  const handleTogglePostLike = async (post: FeedPost) => {
+    const toggleItem = (item: FeedPost) =>
+      item.id === post.id
+        ? { ...item, liked: !item.liked, likes: item.liked ? Math.max(0, item.likes - 1) : item.likes + 1 }
+        : item;
 
-    setPostsByGroup(applyToggle);
-    if (postId.startsWith("temp-")) return;
+    setHomePosts(curr => curr.map(toggleItem));
+    setPostsByGroup(curr => ({
+      ...curr,
+      [post.groupId]: (curr[post.groupId] ?? []).map(toggleItem),
+    }));
 
     try {
-      const result = await togglePostLikeRequest(postId);
-      setPostsByGroup(current => ({
-        ...current,
-        [groupId]: (current[groupId] ?? []).map(post =>
-          post.id === postId ? { ...post, liked: result.liked, likes: result.likes } : post,
-        ),
+      const result = await togglePostLikeRequest(post.id);
+      const syncItem = (item: FeedPost) =>
+        item.id === post.id ? { ...item, liked: result.liked, likes: result.likes } : item;
+      setHomePosts(curr => curr.map(syncItem));
+      setPostsByGroup(curr => ({
+        ...curr,
+        [post.groupId]: (curr[post.groupId] ?? []).map(syncItem),
       }));
     } catch {
-      // reverte se a API falhar
-      setPostsByGroup(applyToggle);
+      setHomePosts(curr => curr.map(toggleItem));
+      setPostsByGroup(curr => ({
+        ...curr,
+        [post.groupId]: (curr[post.groupId] ?? []).map(toggleItem),
+      }));
     }
   };
 
-  const handleToggleHomePostLike = (postId: number) => {
-    setLikedHomePosts(current =>
-      current.includes(postId) ? current.filter(id => id !== postId) : [...current, postId],
-    );
+  const handleDeletePostEverywhere = (postId: string) => {
+    setHomePosts(curr => curr.filter(p => p.id !== postId));
+    setPostsByGroup(curr => {
+      const next: Record<string, FeedPost[]> = {};
+      for (const [gid, list] of Object.entries(curr)) {
+        next[gid] = list.filter(p => p.id !== postId);
+      }
+      return next;
+    });
   };
 
-  const handleCreateGroup = async (group: CommunityGroup) => {
-    setCommunityGroups(current => [group, ...current]);
-    setPostsByGroup(current => ({ ...current, [group.id]: [] }));
+  const handleBlockedUserEverywhere = (blockedUserId: string) => {
+    setHomePosts(curr => curr.filter(p => p.userId !== blockedUserId));
+    setPostsByGroup(curr => {
+      const next: Record<string, FeedPost[]> = {};
+      for (const [gid, list] of Object.entries(curr)) {
+        next[gid] = list.filter(p => p.userId !== blockedUserId);
+      }
+      return next;
+    });
+  };
+
+  const handleCreateGroup = async (input: {
+    name: string;
+    description: string;
+    theme: string;
+    adminId?: string | null;
+    isTemporary: boolean;
+    durationDays?: number;
+    accent: string;
+  }) => {
     setIsCreateGroupOpen(false);
-    try {
-      const updated = await createGroupRequest(group);
-      setCommunityGroups(updated);
-    } catch {
-      // mantém o grupo otimista se a API falhar
-    }
+    const updated = await createGroupRequest(input);
+    setCommunityGroups(updated);
   };
 
-  // ---- Mensagens: ações ----
+  // ---- Mensagens ----
   const handleSendConversationMessage = async (conversationId: number, text: string) => {
-    setConversations(current =>
-      current.map(conversation =>
-        conversation.id === conversationId
-          ? {
-              ...conversation,
-              messages: [
-                ...conversation.messages,
-                { id: conversation.messages.length + 1, sender: "me", text, time: clockLabel() },
-              ],
-            }
-          : conversation,
-      ),
-    );
     try {
       const { conversation } = await sendConversationMessageRequest(conversationId, text);
       setConversations(current => current.map(item => (item.id === conversationId ? conversation : item)));
     } catch {
-      // se falhar, volta ao que está salvo no servidor (a mensagem otimista some)
-      fetchConversations()
-        .then(setConversations)
-        .catch(() => {
-          // o próximo ciclo de atualização tenta de novo
-        });
+      fetchConversations().then(setConversations).catch(() => {});
     }
   };
 
@@ -673,6 +550,9 @@ export function App() {
   const myGroups = communityGroups.filter(group => group.joined);
   const upcomingBookings = bookings.filter(booking => booking.status !== "canceled");
   const nextBooking = upcomingBookings[0];
+
+  const selectedExpert =
+    professionals.find(pro => pro.id === selectedDoctorId) ?? professionals[0] ?? null;
 
   const suggestedGroups = useMemo(() => {
     const joinedThemes = new Set(communityGroups.filter(group => group.joined).map(group => group.theme));
@@ -686,32 +566,29 @@ export function App() {
       .slice(0, 3);
   }, [communityGroups]);
 
-  const nearbyGroups = useMemo(() => {
-    return communityGroups
-      .map(group => ({ group, distance: simulatedDistanceKm(group.id, effectiveLocation.lat, effectiveLocation.lng) }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 5);
-  }, [communityGroups, effectiveLocation]);
+  const activeGroupsSummary = useMemo(() => {
+    return [...communityGroups].sort((a, b) => b.members - a.members).slice(0, 4);
+  }, [communityGroups]);
 
   const filteredExperts = useMemo(() => {
     const query = normalizeText(expertQuery.trim());
-    const limit = maxPrice === "all" ? Infinity : Number(maxPrice);
-    return experts.filter(expert => {
+    return professionals.filter(expert => {
       const matchesText =
         !query || normalizeText(`${expert.name} ${expert.role} ${expert.specialty}`).includes(query);
-      return matchesText && priceToNumber(expert.price) <= limit;
+      const matchesSlots = !onlyWithSlots || expert.freeSlots.length > 0;
+      return matchesText && matchesSlots;
     });
-  }, [expertQuery, maxPrice]);
+  }, [professionals, expertQuery, onlyWithSlots]);
 
-  const visiblePosts = useMemo(() => {
-    if (activeGroup === "all") return feedPosts;
-    return feedPosts.filter(post => post.group === activeGroup);
-  }, [activeGroup]);
+  const visibleHomePosts = useMemo(() => {
+    if (activeFeedTheme === "all") return homePosts;
+    return homePosts.filter(post => post.groupTheme === activeFeedTheme);
+  }, [homePosts, activeFeedTheme]);
 
-  // ---- Agendamento: ações ----
-  const handleBooking = (expert: Expert) => {
-    setSelectedExpert(expert);
-    setSelectedSlot(availabilitySlots.includes(expert.availability) ? expert.availability : "");
+  // ---- Agendamento ----
+  const handleBooking = (expert: Professional) => {
+    setSelectedDoctorId(expert.id);
+    setSelectedSlot(expert.freeSlots[0] ?? "");
     setSlotError(false);
     setBookingError("");
     setIsBooked(false);
@@ -719,8 +596,16 @@ export function App() {
   };
 
   const handleFindSupport = (themeId: string) => {
-    const expertId = supportExpertByTheme[themeId] ?? 1;
-    handleBooking(experts.find(expert => expert.id === expertId) ?? initialExpert);
+    const targetSpecialty = SPECIALTY_BY_THEME[themeId] ?? "";
+    const matching =
+      professionals.find(pro => pro.specialty === targetSpecialty && pro.freeSlots.length > 0) ??
+      professionals.find(pro => pro.specialty === targetSpecialty) ??
+      professionals[0];
+    if (matching) {
+      handleBooking(matching);
+    } else {
+      setActiveScreen("specialists");
+    }
   };
 
   const handleSelectSlot = (slot: string) => {
@@ -730,8 +615,9 @@ export function App() {
     setIsBooked(false);
   };
 
-  const handleSubmit = async (event: SyntheticEvent) => {
+  const handleSubmitBooking = async (event: SyntheticEvent) => {
     event.preventDefault();
+    if (!selectedExpert) return;
     if (!selectedSlot) {
       setSlotError(true);
       return;
@@ -740,13 +626,8 @@ export function App() {
     setBookingError("");
     setIsSubmittingBooking(true);
     try {
-      const updated = await createBookingRequest(currentUser?.email ?? formData.email, {
-        expertId: selectedExpert.id,
-        expertName: selectedExpert.name,
-        expertRole: selectedExpert.role,
-        specialty: selectedExpert.specialty,
-        price: selectedExpert.price,
-        accent: selectedExpert.accent,
+      const updated = await createBookingRequest({
+        doctorId: selectedExpert.id,
         slot: selectedSlot,
         preference: formData.preference,
         reason: formData.reason.trim(),
@@ -760,15 +641,12 @@ export function App() {
         body: `${selectedExpert.name} • ${selectedSlot} (${formData.preference})`,
         target: { screen: "bookings" },
       });
-      // a conversa com o profissional é criada ao agendar: atualiza a lista
-      fetchConversations()
-        .then(setConversations)
-        .catch(() => {
-          // o próximo ciclo de atualização busca de novo
-        });
+      fetchProfessionals().then(setProfessionals).catch(() => {});
+      fetchConversations().then(setConversations).catch(() => {});
     } catch (error) {
       setIsBooked(false);
       setBookingError(error instanceof Error ? error.message : "Não foi possível confirmar o agendamento.");
+      fetchProfessionals().then(setProfessionals).catch(() => {});
     } finally {
       setIsSubmittingBooking(false);
     }
@@ -777,7 +655,8 @@ export function App() {
   const handleCancelBooking = async (id: string): Promise<string | null> => {
     const booking = bookings.find(item => item.id === id);
     try {
-      setBookings(await cancelBookingRequest(currentUser?.email ?? "", id));
+      setBookings(await cancelBookingRequest(id));
+      fetchProfessionals().then(setProfessionals).catch(() => {});
       if (booking) {
         addNotification({
           kind: "booking",
@@ -795,7 +674,8 @@ export function App() {
   const handleRescheduleBooking = async (id: string, slot: string): Promise<string | null> => {
     const booking = bookings.find(item => item.id === id);
     try {
-      setBookings(await rescheduleBookingRequest(currentUser?.email ?? "", id, slot));
+      setBookings(await rescheduleBookingRequest(id, slot));
+      fetchProfessionals().then(setProfessionals).catch(() => {});
       if (booking) {
         addNotification({
           kind: "booking",
@@ -828,27 +708,114 @@ export function App() {
     setActiveScreen(target.screen);
   };
 
-  const handleLogout = () => {
-    window.localStorage.removeItem("psyconect_user");
+  const handleLogout = async () => {
+    if (
+      hasActiveTestSession &&
+      !window.confirm(
+        "Você tem uma sessão de teste PANAS em andamento. Deseja sair mesmo assim? (Você pode encerrá-la antes no card de Sessão de teste.)",
+      )
+    ) {
+      return;
+    }
+
+    await logoutRequest();
     setCurrentUser(null);
     setBookings([]);
     setConversations([]);
+    setHomePosts([]);
+    setCommunityGroups([]);
     setNotifStore({ email: "", items: [] });
     setRoomGroupId(null);
+    setHasActiveTestSession(false);
+    setAuthMode("login");
     setActiveScreen("home");
   };
 
-  // Todos os hooks ficam acima deste ponto
-  if (!currentUser) {
-    return <AuthGate onLogin={handleLogin} />;
+  // ---- Telas de carregamento / erro / papéis ----
+  if (authChecking) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <p className="brand-mark">PsyConnect</p>
+          <p className="auth-subtitle">Verificando sua sessão...</p>
+        </div>
+      </div>
+    );
   }
 
-  if (currentUser.role === "pro") {
+  if (startupError) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <p className="brand-mark">PsyConnect</p>
+          <h2>Não foi possível conectar</h2>
+          <p className="auth-error" role="alert">
+            {startupError}
+          </p>
+          <button type="button" className="primary-btn full-width" onClick={bootstrapSession}>
+            Tentar de novo
+          </button>
+          <div className="auth-crisis">
+            <CrisisNotice />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser || authMode === "recovery") {
+    return (
+      <AuthGate
+        key={authMode}
+        initialMode={authMode}
+        initialNotice={authNotice}
+        initialError={authExternalError}
+        onClearExternalNotice={() => {
+          setAuthNotice("");
+          setAuthExternalError("");
+        }}
+        onLogin={user => {
+          setAuthMode("login");
+          setCurrentUser(user);
+        }}
+      />
+    );
+  }
+
+  if (currentUser.role === "admin") {
+    return (
+      <AdminApp
+        user={currentUser}
+        theme={theme}
+        onToggleTheme={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+        onUserUpdated={setCurrentUser}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (currentUser.role === "medico" && currentUser.professional?.status !== "aprovado") {
+    return (
+      <PendingDoctorScreen
+        user={currentUser}
+        theme={theme}
+        onToggleTheme={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+        onRefreshStatus={async () => {
+          const refreshed = await restoreSessionUser();
+          if (refreshed) setCurrentUser(refreshed);
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  if (currentUser.role === "medico") {
     return (
       <ProApp
         user={currentUser}
         theme={theme}
         onToggleTheme={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+        onUserUpdated={setCurrentUser}
         onLogout={handleLogout}
       />
     );
@@ -858,7 +825,7 @@ export function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="brand-mark">PsyConect</p>
+          <p className="brand-mark">PsyConnect</p>
           <span className="brand-subtitle">Saúde mental com acolhimento e clareza</span>
         </div>
         <nav className="nav-links" aria-label="Navegação principal">
@@ -892,6 +859,13 @@ export function App() {
         </nav>
         <div className="topbar-user">
           <span className="topbar-greeting">Olá, {currentUser.name.split(" ")[0]}</span>
+          <button
+            type="button"
+            className={activeScreen === "profile" ? "secondary-btn small active-profile-btn" : "secondary-btn small"}
+            onClick={() => setActiveScreen("profile")}
+          >
+            Perfil
+          </button>
           <NotificationBell
             items={notifications}
             onOpenItem={handleOpenNotification}
@@ -918,19 +892,19 @@ export function App() {
           <section className="feed-main">
             <div className="composer-card">
               <div className="composer-top">
-                <div className="avatar avatar-large">P</div>
+                <div className="avatar avatar-large">{avatarInitial(currentUser.name)}</div>
                 <div>
                   <h2>O que você quer cuidar hoje?</h2>
-                  <p>Explore grupos de apoio e encontre uma trilha que faça sentido para você.</p>
+                  <p>Explore publicações reais da comunidade ou participe de um grupo de apoio.</p>
                 </div>
               </div>
-              <div className="group-chips" role="tablist" aria-label="Grupos de apoio">
-                {groups.map(group => (
+              <div className="group-chips" role="tablist" aria-label="Filtrar mural por tema">
+                {[{ id: "all", label: "Todos", accent: "#4f46e5" }, ...categories].map(group => (
                   <button
                     key={group.id}
                     type="button"
-                    className={activeGroup === group.id ? "group-chip active" : "group-chip"}
-                    onClick={() => setActiveGroup(group.id)}
+                    className={activeFeedTheme === group.id ? "group-chip active" : "group-chip"}
+                    onClick={() => setActiveFeedTheme(group.id)}
                   >
                     <span className="chip-dot" style={{ backgroundColor: group.accent }} />
                     {group.label}
@@ -939,46 +913,37 @@ export function App() {
               </div>
             </div>
 
-            <div className="feed-list">
-              {visiblePosts.map(post => {
-                const liked = likedHomePosts.includes(post.id);
-                return (
-                  <article key={post.id} className="feed-card">
-                    <div className="feed-card-top">
-                      <div className="avatar">{avatarInitial(post.author)}</div>
-                      <div>
-                        <div className="feed-author-row">
-                          <strong>{post.author}</strong>
-                          <span>{post.handle}</span>
-                          <span>•</span>
-                          <span>{post.time}</span>
-                        </div>
-                        <p className="feed-group">{groups.find(group => group.id === post.group)?.label}</p>
-                      </div>
-                    </div>
-                    <p className="feed-body">{post.body}</p>
-                    <div className="feed-actions">
-                      <button
-                        type="button"
-                        className={liked ? "like-btn liked" : "like-btn"}
-                        onClick={() => handleToggleHomePostLike(post.id)}
-                        aria-pressed={liked}
-                        aria-label={liked ? "Remover curtida" : "Curtir"}
-                      >
-                        {liked ? "♥" : "♡"} {Number(post.likes) + (liked ? 1 : 0)}
-                      </button>
-                      <span>💬 {post.comments}</span>
-                      <button type="button" className="text-link" onClick={() => handleFindSupport(post.group)}>
-                        Encontrar apoio
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+            {homeLoading ? (
+              <p className="empty-state">Carregando publicações...</p>
+            ) : homeError ? (
+              <div className="empty-state network-error-box">
+                <p>{homeError}</p>
+                <button type="button" className="primary-btn small" onClick={loadPatientData}>
+                  Tentar de novo
+                </button>
+              </div>
+            ) : (
+              <div className="feed-list">
+                <PostFeedList
+                  posts={visibleHomePosts}
+                  currentUserId={currentUser.id}
+                  emptyMessage="Ainda não há publicações neste tema. Entre em um grupo na aba Grupos para iniciar a conversa."
+                  showGroupBadge
+                  onToggleLike={handleTogglePostLike}
+                  onDeletedPost={handleDeletePostEverywhere}
+                  onBlockedUser={handleBlockedUserEverywhere}
+                  onFindSupport={handleFindSupport}
+                />
+              </div>
+            )}
           </section>
 
           <aside className="feed-sidebar">
+            <TestSessionCard
+              user={currentUser}
+              onUserUpdated={setCurrentUser}
+              onActiveChange={setHasActiveTestSession}
+            />
             <CrisisNotice />
 
             {nextBooking && (
@@ -995,8 +960,7 @@ export function App() {
             )}
 
             <BreathingExercise />
-            <MoodTracker email={currentUser.email} />
-            <TestSessionCard key={currentUser.email} email={currentUser.email} />
+            <MoodTracker userId={currentUser.id} />
 
             {myGroups.length > 0 && (
               <div className="insight-card">
@@ -1022,24 +986,30 @@ export function App() {
               <p className="eyebrow">Hoje</p>
               <h3>Seu foco recomendado</h3>
               <p>Respirar, reduzir excesso de estímulos e reservar espaço para o que te faz bem.</p>
-              <button type="button" className="primary-btn full-width" onClick={() => setActiveScreen("booking")}>
+              <button type="button" className="primary-btn full-width" onClick={() => setActiveScreen("specialists")}>
                 Agendar sessão
               </button>
             </div>
-            <div className="insight-card">
-              <p className="eyebrow">Comunidade</p>
-              <h3>Grupos mais ativos</h3>
-              <ul className="sidebar-list">
-                <li>Ansiedade • 2.4k conversas</li>
-                <li>Autoconhecimento • 1.8k conversas</li>
-                <li>Relacionamentos • 1.2k conversas</li>
-              </ul>
-            </div>
+
+            {activeGroupsSummary.length > 0 && (
+              <div className="insight-card">
+                <p className="eyebrow">Comunidade</p>
+                <h3>Grupos com mais participantes</h3>
+                <ul className="sidebar-list">
+                  {activeGroupsSummary.map(group => (
+                    <li key={group.id}>
+                      {group.name} • {group.members.toLocaleString("pt-BR")} participantes
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="insight-card">
               <p className="eyebrow">Sugeridos pra você</p>
               <h3>Baseado nos grupos que você participa</h3>
               {suggestedGroups.length === 0 ? (
-                <p>Participe de um grupo em "Grupos" para receber sugestões personalizadas.</p>
+                <p>Você já participa de todos os grupos disponíveis ou ainda estamos carregando.</p>
               ) : (
                 <ul className="suggested-group-list">
                   {suggestedGroups.map(group => (
@@ -1057,7 +1027,8 @@ export function App() {
                         <span>
                           <strong>{group.name}</strong>
                           <span className="suggested-group-meta">
-                            {categories.find(category => category.id === group.theme)?.label} · {group.members.toLocaleString("pt-BR")} participantes
+                            {categories.find(category => category.id === group.theme)?.label} ·{" "}
+                            {group.members.toLocaleString("pt-BR")} participantes
                           </span>
                         </span>
                       </button>
@@ -1065,52 +1036,6 @@ export function App() {
                   ))}
                 </ul>
               )}
-            </div>
-            <div className="insight-card">
-              <p className="eyebrow">📍 Perto de você</p>
-              <h3>Grupos recomendados pela sua localização</h3>
-
-              <label className="location-picker">
-                <span>Localização</span>
-                <select
-                  value={useRealLocation ? "real" : selectedLocationId}
-                  onChange={event => {
-                    if (event.target.value === "real") {
-                      handleUseRealLocation();
-                    } else {
-                      setUseRealLocation(false);
-                      setSelectedLocationId(event.target.value);
-                    }
-                  }}
-                >
-                  {demoLocations.map(location => (
-                    <option key={location.id} value={location.id}>
-                      {location.label}
-                    </option>
-                  ))}
-                  <option value="real">Usar minha localização atual</option>
-                </select>
-              </label>
-
-              {locationStatus === "loading" && <p className="location-status">Localizando você...</p>}
-              {locationStatus === "denied" && (
-                <p className="location-status">
-                  Não foi possível acessar sua localização, mostrando resultados para{" "}
-                  {demoLocations.find(location => location.id === selectedLocationId)?.label}.
-                </p>
-              )}
-
-              <ul className="nearby-group-list">
-                {nearbyGroups.map(({ group, distance }) => (
-                  <li key={group.id} className="nearby-group-item">
-                    <span className="nearby-pin" style={{ backgroundColor: group.accent }} />
-                    <div>
-                      <strong>{group.name}</strong>
-                      <span className="nearby-distance">{distance} km de você</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
             </div>
           </aside>
         </main>
@@ -1120,7 +1045,7 @@ export function App() {
         <main className="screen">
           <section className="section-heading">
             <div>
-              <p className="eyebrow">Especialistas disponíveis</p>
+              <p className="eyebrow">Especialistas verificados</p>
               <h2>Escolha o profissional ideal para você.</h2>
             </div>
             <button type="button" className="secondary-btn" onClick={() => setActiveScreen("booking")}>
@@ -1136,150 +1061,210 @@ export function App() {
               placeholder="Buscar por nome ou especialidade"
               aria-label="Buscar especialista"
             />
-            <select value={maxPrice} onChange={event => setMaxPrice(event.target.value)} aria-label="Filtrar por preço">
-              <option value="all">Qualquer preço</option>
-              <option value="160">Até R$ 160</option>
-              <option value="180">Até R$ 180</option>
-              <option value="200">Até R$ 200</option>
-            </select>
+            <label className="create-group-toggle-row slot-filter-check">
+              <input
+                type="checkbox"
+                checked={onlyWithSlots}
+                onChange={event => setOnlyWithSlots(event.target.checked)}
+              />
+              <span>Apenas com horários livres</span>
+            </label>
           </div>
 
-          {filteredExperts.length === 0 && (
-            <p className="empty-state">Nenhum especialista encontrado com esses filtros.</p>
+          {professionalsError ? (
+            <div className="empty-state network-error-box">
+              <p>{professionalsError}</p>
+              <button type="button" className="primary-btn small" onClick={loadPatientData}>
+                Tentar de novo
+              </button>
+            </div>
+          ) : filteredExperts.length === 0 ? (
+            <p className="empty-state">
+              {professionals.length === 0
+                ? "Nenhum profissional aprovado disponível no momento."
+                : "Nenhum especialista encontrado com esses filtros."}
+            </p>
+          ) : (
+            <div className="expert-grid">
+              {filteredExperts.map(expert => (
+                <article key={expert.id} className="expert-card">
+                  <div className="expert-top">
+                    <div className="avatar" style={{ backgroundColor: expert.accent }}>
+                      {avatarInitial(expert.name)}
+                    </div>
+                    <div>
+                      <h3>{expert.name}</h3>
+                      <p>
+                        {expert.role} · CRM/{expert.crmUf} {expert.crm}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="expert-specialty">{expert.specialty}</p>
+                  <p className="expert-description">{expert.bio}</p>
+                  <div className="expert-meta">
+                    <span>{expert.experience}</span>
+                    <span>{expert.price}</span>
+                  </div>
+                  <div className="expert-footer">
+                    <span>
+                      {expert.freeSlots.length > 0
+                        ? `${expert.freeSlots.length} horário(s) livre(s)`
+                        : "Sem horários livres"}
+                    </span>
+                    <button type="button" className="primary-btn small" onClick={() => handleBooking(expert)}>
+                      Agendar
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
           )}
-
-          <div className="expert-grid">
-            {filteredExperts.map(expert => (
-              <article key={expert.id} className="expert-card">
-                <div className="expert-top">
-                  <div className="avatar" style={{ backgroundColor: expert.accent }}>
-                    {avatarInitial(expert.name)}
-                  </div>
-                  <div>
-                    <h3>{expert.name}</h3>
-                    <p>{expert.role}</p>
-                  </div>
-                </div>
-                <p className="expert-specialty">{expert.specialty}</p>
-                <p className="expert-description">{expert.description}</p>
-                <div className="expert-meta">
-                  <span>Experiência: {expert.experience}</span>
-                  <span>{expert.price}</span>
-                </div>
-                <div className="expert-footer">
-                  <span>{expert.availability}</span>
-                  <button type="button" className="primary-btn small" onClick={() => handleBooking(expert)}>
-                    Agendar
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
         </main>
       </When>
 
       <When condition={activeScreen === "booking"}>
         <main className="screen booking-layout">
-          <section className="booking-summary">
-            <p className="eyebrow">Agendamento</p>
-            <h2>Reserve sua sessão com {selectedExpert.name}</h2>
-            <p>{selectedExpert.description}</p>
-            <div className="summary-card">
-              <div>
-                <strong>Especialidade</strong>
-                <p>{selectedExpert.specialty}</p>
-              </div>
-              <div>
-                <strong>Valor</strong>
-                <p>{selectedExpert.price}</p>
-              </div>
-            </div>
-            <div className="availability-list">
-              {availabilitySlots.map(slot => (
-                <button
-                  key={slot}
-                  type="button"
-                  className={selectedSlot === slot ? "availability-btn active" : "availability-btn"}
-                  onClick={() => handleSelectSlot(slot)}
-                  aria-pressed={selectedSlot === slot}
-                >
-                  {slot}
-                </button>
-              ))}
-            </div>
-            {slotError && <p className="field-error">Escolha um horário para continuar.</p>}
-          </section>
-
-          <section className="booking-form-card">
-            <h3>Dados para o atendimento</h3>
-            <form onSubmit={handleSubmit} className="booking-form">
-              <label>
-                Nome
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={event => setFormData({ ...formData, name: event.target.value })}
-                  placeholder="Seu nome"
-                  required
-                />
-              </label>
-              <label>
-                E-mail
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={event => setFormData({ ...formData, email: event.target.value })}
-                  placeholder="seu@email.com"
-                  required
-                />
-              </label>
-              <label>
-                Motivo da sessão{" "}
-                <textarea
-                  value={formData.reason}
-                  onChange={event => setFormData({ ...formData, reason: event.target.value })}
-                  placeholder="Conte em poucas palavras o que você gostaria de trabalhar"
-                  rows={4}
-                  required
-                />
-              </label>
-              <label>
-                Preferência{" "}
-                <select
-                  value={formData.preference}
-                  onChange={event => setFormData({ ...formData, preference: event.target.value })}
-                >
-                  <option value="Online">Online</option>
-                  <option value="Presencial">Presencial</option>
-                </select>
-              </label>
-              <button type="submit" className="primary-btn full-width" disabled={isSubmittingBooking}>
-                {isSubmittingBooking ? "Confirmando..." : "Confirmar agendamento"}
+          {!selectedExpert ? (
+            <section className="booking-summary">
+              <p className="eyebrow">Agendamento</p>
+              <h2>Nenhum profissional disponível ainda</h2>
+              <p className="group-detail-description">
+                Assim que a equipe aprovar um profissional e ele cadastrar horários livres, você poderá agendar por aqui.
+              </p>
+              <button type="button" className="secondary-btn" onClick={loadPatientData}>
+                Atualizar lista
               </button>
-            </form>
-            {bookingError && <p className="field-error">{bookingError}</p>}
-            {isBooked && (
-              <div className="success-box">
-                <strong>Agendamento confirmado!</strong>
-                <p>
-                  {selectedExpert.name} • {selectedSlot} ({formData.preference}). Você receberá um e-mail com o link
-                  da sessão e detalhes da consulta.
-                </p>
-                <button type="button" className="secondary-btn small" onClick={() => setActiveScreen("bookings")}>
-                  Ver minhas sessões
-                </button>
-              </div>
-            )}
-          </section>
+            </section>
+          ) : (
+            <>
+              <section className="booking-summary">
+                <p className="eyebrow">Agendamento</p>
+                <h2>Reserve sua sessão com {selectedExpert.name}</h2>
+                <p>{selectedExpert.bio}</p>
+                <div className="summary-card">
+                  <div>
+                    <strong>Especialidade</strong>
+                    <p>{selectedExpert.specialty}</p>
+                  </div>
+                  <div>
+                    <strong>Valor nos testes</strong>
+                    <p>{selectedExpert.price}</p>
+                  </div>
+                </div>
+
+                {professionals.length > 1 && (
+                  <label className="location-picker">
+                    <span>Trocar profissional</span>
+                    <select
+                      value={selectedExpert.id}
+                      onChange={e => {
+                        const pro = professionals.find(item => item.id === e.target.value);
+                        if (pro) handleBooking(pro);
+                      }}
+                    >
+                      {professionals.map(pro => (
+                        <option key={pro.id} value={pro.id}>
+                          {pro.name} · {pro.specialty}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                <div className="availability-list">
+                  {selectedExpert.freeSlots.length === 0 ? (
+                    <p className="comments-empty">
+                      Este profissional não tem horários livres no momento. Escolha outro ou tente mais tarde.
+                    </p>
+                  ) : (
+                    selectedExpert.freeSlots.map(slot => (
+                      <button
+                        key={slot}
+                        type="button"
+                        className={selectedSlot === slot ? "availability-btn active" : "availability-btn"}
+                        onClick={() => handleSelectSlot(slot)}
+                        aria-pressed={selectedSlot === slot}
+                      >
+                        {slot}
+                      </button>
+                    ))
+                  )}
+                </div>
+                {slotError && <p className="field-error">Escolha um horário para continuar.</p>}
+              </section>
+
+              <section className="booking-form-card">
+                <h3>Dados para o atendimento</h3>
+                <div className="auth-notice payment-test-notice" role="note">
+                  <strong>Sem cobrança nos testes:</strong> nenhum pagamento real é realizado no aplicativo e este
+                  agendamento não gera cobrança.
+                </div>
+
+                <form onSubmit={handleSubmitBooking} className="booking-form">
+                  <label>
+                    Nome
+                    <input type="text" value={currentUser.name} disabled />
+                  </label>
+                  <label>
+                    E-mail
+                    <input type="email" value={currentUser.email} disabled />
+                  </label>
+                  <label>
+                    Motivo da sessão{" "}
+                    <textarea
+                      value={formData.reason}
+                      onChange={event => setFormData({ ...formData, reason: event.target.value })}
+                      placeholder="Conte em poucas palavras o que você gostaria de trabalhar"
+                      rows={4}
+                      maxLength={500}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Preferência{" "}
+                    <select
+                      value={formData.preference}
+                      onChange={event => setFormData({ ...formData, preference: event.target.value })}
+                    >
+                      <option value="Online">Online</option>
+                      <option value="Presencial">Presencial</option>
+                    </select>
+                  </label>
+                  <button
+                    type="submit"
+                    className="primary-btn full-width"
+                    disabled={isSubmittingBooking || selectedExpert.freeSlots.length === 0}
+                  >
+                    {isSubmittingBooking ? "Confirmando..." : "Confirmar agendamento"}
+                  </button>
+                </form>
+
+                {bookingError && <p className="field-error">{bookingError}</p>}
+                {isBooked && (
+                  <div className="success-box">
+                    <strong>Agendamento confirmado!</strong>
+                    <p>
+                      {selectedExpert.name} • {selectedSlot} ({formData.preference}). A sessão já está em{" "}
+                      <strong>Sessões</strong> e a conversa foi aberta em <strong>Mensagens</strong>.
+                    </p>
+                    <button type="button" className="secondary-btn small" onClick={() => setActiveScreen("bookings")}>
+                      Ver minhas sessões
+                    </button>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </main>
       </When>
 
       <When condition={activeScreen === "bookings"}>
         <MyBookings
           bookings={bookings}
+          professionals={professionals}
           isLoading={bookingsLoading}
           error={bookingsError}
-          slots={availabilitySlots}
+          onRetry={loadPatientData}
           onCancel={handleCancelBooking}
           onReschedule={handleRescheduleBooking}
           onNewBooking={() => setActiveScreen("specialists")}
@@ -1294,7 +1279,12 @@ export function App() {
 
       {activeScreen === "groups" && !isLoadingGroups && groupsError && (
         <main className="screen">
-          <p className="empty-state">Não foi possível carregar os grupos agora ({groupsError}).</p>
+          <div className="empty-state network-error-box">
+            <p>Não foi possível carregar os grupos agora ({groupsError}).</p>
+            <button type="button" className="primary-btn small" onClick={loadPatientData}>
+              Tentar de novo
+            </button>
+          </div>
         </main>
       )}
 
@@ -1302,7 +1292,6 @@ export function App() {
         <GroupsScreen
           groups={communityGroups}
           categories={categories}
-          professionals={professionals}
           activeCategory={activeCategory}
           onSelectCategory={setActiveCategory}
           onToggleJoin={handleToggleGroupJoin}
@@ -1314,16 +1303,21 @@ export function App() {
       {activeScreen === "groups" && roomGroup && (
         <GroupRoom
           group={roomGroup}
-          admin={professionals.find(professional => professional.id === roomGroup.adminId)}
           category={categories.find(category => category.id === roomGroup.theme)}
           posts={postsByGroup[roomGroup.id] ?? []}
           completedDays={completedDaysByGroup[roomGroup.id] ?? []}
-          userName={currentUser.name}
+          ranking={rankingByGroup[roomGroup.id] ?? []}
+          currentUserId={currentUser.id}
           showWelcome={welcomeGroupId === roomGroup.id}
           onDismissWelcome={() => setWelcomeGroupId(null)}
           onToggleDay={handleToggleChallengeDay}
           onAddPost={handleAddGroupPost}
-          onToggleLike={handleToggleGroupPostLike}
+          onToggleLike={(gid, postId) => {
+            const found = (postsByGroup[gid] ?? []).find(p => p.id === postId);
+            if (found) void handleTogglePostLike(found);
+          }}
+          onDeletePost={(_gid, postId) => handleDeletePostEverywhere(postId)}
+          onBlockedUser={handleBlockedUserEverywhere}
           onLeave={handleToggleGroupJoin}
           onBack={() => setRoomGroupId(null)}
         />
@@ -1339,17 +1333,33 @@ export function App() {
         />
       </When>
 
+      <When condition={activeScreen === "profile"}>
+        <ProfileScreen
+          user={currentUser}
+          theme={theme}
+          onToggleTheme={() => setTheme(current => (current === "dark" ? "light" : "dark"))}
+          onUserUpdated={setCurrentUser}
+          onUnblockedUser={loadPatientData}
+          onLogout={handleLogout}
+        />
+      </When>
+
       {selectedGroup && (
         <GroupDetailModal
           group={selectedGroup}
-          admin={professionals.find(professional => professional.id === selectedGroup.adminId)}
           category={categories.find(category => category.id === selectedGroup.theme)}
           posts={postsByGroup[selectedGroup.id] ?? []}
           completedDays={completedDaysByGroup[selectedGroup.id] ?? []}
+          currentUserId={currentUser.id}
           onToggleDay={handleToggleChallengeDay}
           onToggleJoin={handleToggleGroupJoin}
           onAddPost={handleAddGroupPost}
-          onToggleLike={handleToggleGroupPostLike}
+          onToggleLike={(gid, postId) => {
+            const found = (postsByGroup[gid] ?? []).find(p => p.id === postId);
+            if (found) void handleTogglePostLike(found);
+          }}
+          onDeletePost={(_gid, postId) => handleDeletePostEverywhere(postId)}
+          onBlockedUser={handleBlockedUserEverywhere}
           onClose={() => setSelectedGroupId(null)}
         />
       )}

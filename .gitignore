@@ -22,6 +22,15 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.production.local
 .env.local
 
+# local sqlite leftovers
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Android signing keystores (NUNCA commitar keystore!)
+*.keystore
+*.jks
+
 # caches
 .eslintcache
 .cache

@@ -1,12 +1,13 @@
 import { useState } from "react";
-import type { Booking, BookingStatus } from "./types";
+import type { Booking, BookingStatus, Professional } from "./types";
 import { avatarInitial } from "./utils";
 
 type MyBookingsProps = {
   bookings: Booking[];
+  professionals: Professional[];
   isLoading: boolean;
   error: string;
-  slots: string[];
+  onRetry: () => void;
   onCancel: (id: string) => Promise<string | null>;
   onReschedule: (id: string, slot: string) => Promise<string | null>;
   onNewBooking: () => void;
@@ -22,9 +23,10 @@ type Feedback = { id: string; kind: "ok" | "error"; text: string };
 
 export function MyBookings({
   bookings,
+  professionals,
   isLoading,
   error,
-  slots,
+  onRetry,
   onCancel,
   onReschedule,
   onNewBooking,
@@ -75,6 +77,8 @@ export function MyBookings({
     const isRescheduling = rescheduleId === booking.id;
     const isBusy = busyId === booking.id;
     const cardFeedback = feedback?.id === booking.id ? feedback : null;
+    const doctor = professionals.find(pro => pro.id === booking.doctorId);
+    const freeSlots = (doctor?.freeSlots ?? []).filter(slot => slot !== booking.slot);
 
     return (
       <article key={booking.id} className={isCanceled ? "booking-card canceled" : "booking-card"}>
@@ -114,30 +118,34 @@ export function MyBookings({
 
         {isRescheduling && (
           <div className="reschedule-box">
-            <p>Escolha o novo horário:</p>
-            <div className="availability-list">
-              {slots
-                .filter(slot => slot !== booking.slot)
-                .map(slot => (
-                  <button
-                    key={slot}
-                    type="button"
-                    className={newSlot === slot ? "availability-btn active" : "availability-btn"}
-                    onClick={() => setNewSlot(slot)}
-                    aria-pressed={newSlot === slot}
-                  >
-                    {slot}
-                  </button>
-                ))}
-            </div>
-            <button
-              type="button"
-              className="primary-btn small"
-              onClick={() => handleConfirmReschedule(booking)}
-              disabled={!newSlot || isBusy}
-            >
-              {isBusy ? "Remarcando..." : "Confirmar novo horário"}
-            </button>
+            <p>Escolha o novo horário livre:</p>
+            {freeSlots.length === 0 ? (
+              <p className="comments-empty">Este profissional não tem outros horários livres no momento.</p>
+            ) : (
+              <>
+                <div className="availability-list">
+                  {freeSlots.map(slot => (
+                    <button
+                      key={slot}
+                      type="button"
+                      className={newSlot === slot ? "availability-btn active" : "availability-btn"}
+                      onClick={() => setNewSlot(slot)}
+                      aria-pressed={newSlot === slot}
+                    >
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="primary-btn small"
+                  onClick={() => handleConfirmReschedule(booking)}
+                  disabled={!newSlot || isBusy}
+                >
+                  {isBusy ? "Remarcando..." : "Confirmar novo horário"}
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -161,7 +169,14 @@ export function MyBookings({
       </section>
 
       {isLoading && <p className="empty-state">Carregando suas sessões...</p>}
-      {!isLoading && error && <p className="empty-state">{error}</p>}
+      {!isLoading && error && (
+        <div className="empty-state network-error-box">
+          <p>{error}</p>
+          <button type="button" className="primary-btn small" onClick={onRetry}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
 
       {!isLoading && !error && (
         <>

@@ -1,10 +1,9 @@
-import type { Category, CommunityGroup, Professional } from "./types.ts";
-import { GroupCard } from "./GroupCard.tsx";
+import type { Category, CommunityGroup } from "./types";
+import { GroupCard } from "./GroupCard";
 
 type GroupsScreenProps = {
   groups: CommunityGroup[];
   categories: Category[];
-  professionals: Professional[];
   activeCategory: string;
   onSelectCategory: (categoryId: string) => void;
   onToggleJoin: (groupId: string) => void;
@@ -15,13 +14,12 @@ type GroupsScreenProps = {
 export function GroupsScreen({
   groups,
   categories,
-  professionals,
   activeCategory,
   onSelectCategory,
   onToggleJoin,
   onOpenDetail,
   onOpenCreate,
-}: GroupsScreenProps) {
+}: Readonly<GroupsScreenProps>) {
   const visibleGroups = activeCategory === "all" ? groups : groups.filter(group => group.theme === activeCategory);
   const permanentGroups = visibleGroups.filter(group => !group.isTemporary);
   const temporaryGroups = visibleGroups.filter(group => group.isTemporary);
@@ -54,21 +52,22 @@ export function GroupsScreen({
       </section>
 
       {joinedCount > 0 && (
-      <div className="my-groups-strip">
-        <p className="eyebrow">Meus grupos</p>
-        <div className="my-groups-list">
-          {groups
-            .filter(group => group.joined)
-            .map(group => (
-              <button key={group.id} type="button" className="my-group-btn" onClick={() => onOpenDetail(group.id)}>
-                <span className="chip-dot" style={{ backgroundColor: group.accent }} />
-                {group.name}
-                <span className="my-group-enter">Entrar →</span>
-              </button>
-            ))}
+        <div className="my-groups-strip">
+          <p className="eyebrow">Meus grupos</p>
+          <div className="my-groups-list">
+            {groups
+              .filter(group => group.joined)
+              .map(group => (
+                <button key={group.id} type="button" className="my-group-btn" onClick={() => onOpenDetail(group.id)}>
+                  <span className="chip-dot" style={{ backgroundColor: group.accent }} />
+                  {group.name}
+                  <span className="my-group-enter">Entrar →</span>
+                </button>
+              ))}
+          </div>
         </div>
-      </div>
-    )}
+      )}
+
       <div className="group-chips" role="tablist" aria-label="Filtrar grupos por tema">
         {categoryChips.map(category => (
           <button
@@ -91,7 +90,6 @@ export function GroupsScreen({
               <GroupCard
                 key={group.id}
                 group={group}
-                admin={professionals.find(professional => professional.id === group.adminId)}
                 categoryLabel={categories.find(category => category.id === group.theme)?.label ?? group.theme}
                 onToggleJoin={onToggleJoin}
                 onOpenDetail={onOpenDetail}
@@ -111,7 +109,6 @@ export function GroupsScreen({
               <GroupCard
                 key={group.id}
                 group={group}
-                admin={professionals.find(professional => professional.id === group.adminId)}
                 categoryLabel={categories.find(category => category.id === group.theme)?.label ?? group.theme}
                 onToggleJoin={onToggleJoin}
                 onOpenDetail={onOpenDetail}

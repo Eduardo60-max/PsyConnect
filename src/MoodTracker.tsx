@@ -3,7 +3,7 @@ import type { MoodDay } from "./types";
 import { fetchMoodWeek, saveMoodRequest } from "./api";
 
 type MoodTrackerProps = {
-  email: string;
+  userId: string;
 };
 
 const MOODS = [
@@ -20,7 +20,7 @@ function weekdayLabel(day: string) {
     .replace(".", "");
 }
 
-export function MoodTracker({ email }: Readonly<MoodTrackerProps>) {
+export function MoodTracker({ userId }: Readonly<MoodTrackerProps>) {
   const [week, setWeek] = useState<MoodDay[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -33,7 +33,7 @@ export function MoodTracker({ email }: Readonly<MoodTrackerProps>) {
     let cancelled = false;
     setIsLoading(true);
     setError("");
-    fetchMoodWeek(email)
+    fetchMoodWeek()
       .then(days => {
         if (cancelled) return;
         setWeek(days);
@@ -50,7 +50,7 @@ export function MoodTracker({ email }: Readonly<MoodTrackerProps>) {
     return () => {
       cancelled = true;
     };
-  }, [email]);
+  }, [userId]);
 
   const average = useMemo(() => {
     const values = week.flatMap(day => (day.mood === null ? [] : [day.mood]));
@@ -68,7 +68,7 @@ export function MoodTracker({ email }: Readonly<MoodTrackerProps>) {
     setError("");
     setSavedNow(false);
     try {
-      const days = await saveMoodRequest(email, selected, note.trim());
+      const days = await saveMoodRequest(selected, note.trim());
       setWeek(days);
       setSavedNow(true);
     } catch (err) {
@@ -147,7 +147,11 @@ export function MoodTracker({ email }: Readonly<MoodTrackerProps>) {
           {week.map(day => {
             const mood = day.mood === null ? null : MOODS[day.mood - 1];
             return (
-              <div key={day.day} className="mood-bar-col" title={mood ? `${mood.label}${day.note ? `: ${day.note}` : ""}` : "Sem registro"}>
+              <div
+                key={day.day}
+                className="mood-bar-col"
+                title={mood ? `${mood.label}${day.note ? `: ${day.note}` : ""}` : "Sem registro"}
+              >
                 <div className="mood-bar-track">
                   {mood && (
                     <div className={`mood-bar mood-${day.mood}`} style={{ height: `${(day.mood ?? 0) * 20}%` }}>

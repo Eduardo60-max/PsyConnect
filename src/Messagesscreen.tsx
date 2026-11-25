@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { Conversation } from "./types";
 import { avatarInitial } from "./utils";
 import { CrisisNotice } from "./CrisisNotice";
+import { ReportModal } from "./ReportModal";
 
 type MessagesScreenProps = {
   conversations: Conversation[];
@@ -24,13 +25,14 @@ export function MessagesScreen({
   onSendMessage,
 }: Readonly<MessagesScreenProps>) {
   const [draft, setDraft] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [reportNotice, setReportNotice] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
   const activeConversation =
     conversations.find(conversation => conversation.id === activeConversationId) ?? conversations[0];
   const activeId = activeConversation?.id ?? 0;
   const messageCount = activeConversation?.messages.length ?? 0;
 
-  // Mantém a conversa rolada até a última mensagem
   useEffect(() => {
     const element = messagesRef.current;
     if (element) element.scrollTop = element.scrollHeight;
@@ -85,11 +87,16 @@ export function MessagesScreen({
               <div className="avatar avatar-small" style={{ backgroundColor: activeConversation.accent }}>
                 {avatarInitial(activeConversation.name)}
               </div>
-              <div>
+              <div className="pro-chat-title">
                 <strong>{activeConversation.name}</strong>
                 <p>{activeConversation.context}</p>
               </div>
+              <button type="button" className="text-link muted-link" onClick={() => setReporting(true)}>
+                Denunciar
+              </button>
             </div>
+
+            {reportNotice && <output className="auth-success">{reportNotice}</output>}
 
             <div className="chat-messages" ref={messagesRef}>
               {activeConversation.messages.length === 0 && (
@@ -111,7 +118,7 @@ export function MessagesScreen({
                 placeholder="Escreva uma mensagem..."
                 maxLength={1000}
               />
-              <button type="submit" className="primary-btn small">
+              <button type="submit" className="primary-btn small" disabled={!draft.trim()}>
                 Enviar
               </button>
             </form>
@@ -121,6 +128,20 @@ export function MessagesScreen({
           <p className="empty-state">Agende uma sessão para começar a conversar com um profissional.</p>
         )}
       </section>
+
+      {reporting && activeConversation && (
+        <ReportModal
+          targetType="user"
+          targetId={activeConversation.otherUserId}
+          reportedUserId={activeConversation.otherUserId}
+          targetLabel={activeConversation.name}
+          onClose={() => setReporting(false)}
+          onSubmitted={() => {
+            setReporting(false);
+            setReportNotice("Denúncia enviada para a equipe de moderação.");
+          }}
+        />
+      )}
     </main>
   );
 }

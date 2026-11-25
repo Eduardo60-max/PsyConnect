@@ -1,195 +1,542 @@
-import { Database } from "bun:sqlite";
+import type {
+  BlockedUser,
+  ChallengeRankEntry,
+  CommunityGroup,
+  FeedPost,
+  ModerationReport,
+  ReportTargetType,
+} from "./types";
+import type { AuthContext } from "./supabaseServer";
+import { getSupabaseAdmin } from "./supabaseServer";
+import { categories } from "./data";
+import { formatTimeLabel, handleFor } from "./timeUtils";
 
-const db = new Database("psyconect.sqlite", { create: true });
-db.exec("PRAGMA journal_mode = WAL;");
-
-db.run(`
-  CREATE TABLE IF NOT EXISTS groups (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    theme TEXT NOT NULL,
-    adminId TEXT NOT NULL,
-    members INTEGER NOT NULL,
-    joined INTEGER NOT NULL,
-    isTemporary INTEGER NOT NULL,
-    durationDays INTEGER,
-    accent TEXT NOT NULL
-  )
-`);
-
-db.run(`
-  CREATE TABLE IF NOT EXISTS posts (
-    id TEXT PRIMARY KEY,
-    groupId TEXT NOT NULL,
-    author TEXT NOT NULL,
-    handle TEXT NOT NULL,
-    body TEXT NOT NULL,
-    time TEXT NOT NULL,
-    likes INTEGER NOT NULL,
-    comments INTEGER NOT NULL,
-    createdAt INTEGER NOT NULL
-  )
-`);
-
-// Migração: adiciona a coluna "liked" em bancos que já existiam
-try {
-  db.run("ALTER TABLE posts ADD COLUMN liked INTEGER NOT NULL DEFAULT 0");
-} catch {
-  // coluna já existe
-}
-
-db.run(`
-  CREATE TABLE IF NOT EXISTS challenge_days (
-    groupId TEXT NOT NULL,
-    day INTEGER NOT NULL,
-    PRIMARY KEY (groupId, day)
-  )
-`);
-
-// ---- Grupos iniciais (sem posts de exemplo) ----
-function seedGroups() {
-  const insertGroup = db.prepare(
-    `INSERT INTO groups (id, name, description, theme, adminId, members, joined, isTemporary, durationDays, accent)
-     VALUES ($id, $name, $description, $theme, $adminId, $members, $joined, $isTemporary, $durationDays, $accent)`,
-  );
-
-  const initialGroups = [
-    { id: "grp-1", name: "Respirar Antes de Reagir", description: "Um espaço para trocar técnicas de respiração e regulação da ansiedade no dia a dia.", theme: "ansiedade", adminId: "prof-1", isTemporary: 0, durationDays: null, accent: "#8b5cf6" },
-    { id: "grp-2", name: "Autoconhecimento em Prática", description: "Reflexões guiadas e exercícios semanais para entender seus próprios padrões.", theme: "autoconhecimento", adminId: "prof-3", isTemporary: 0, durationDays: null, accent: "#0f766e" },
-    { id: "grp-3", name: "Limites com Leveza", description: "Comunicação não violenta e limites saudáveis nos relacionamentos.", theme: "relacionamentos", adminId: "prof-2", isTemporary: 0, durationDays: null, accent: "#db2777" },
-    { id: "grp-4", name: "Noites Mais Leves", description: "Rotinas de sono e higiene do descanso para quem sofre com insônia.", theme: "sono", adminId: "prof-1", isTemporary: 0, durationDays: null, accent: "#f59e0b" },
-    { id: "grp-5", name: "Desafio 5 Dias Sem Ansiedade", description: "Um programa curto e guiado com práticas diárias para reduzir picos de ansiedade.", theme: "ansiedade", adminId: "prof-1", isTemporary: 1, durationDays: 5, accent: "#7c3aed" },
-    { id: "grp-6", name: "Desafio 21 Dias de Movimento", description: "Programa de exercícios progressivos para criar o hábito de se movimentar.", theme: "exercicio", adminId: "prof-4", isTemporary: 1, durationDays: 21, accent: "#2563eb" },
-    { id: "grp-7", name: "Reeducação Alimentar em 10 Dias", description: "Pequenas mudanças diárias para uma relação mais saudável com a comida.", theme: "emagrecimento", adminId: "prof-5", isTemporary: 1, durationDays: 10, accent: "#16a34a" },
-  ];
-
-  for (const group of initialGroups) {
-    insertGroup.run({
-      $id: group.id,
-      $name: group.name,
-      $description: group.description,
-      $theme: group.theme,
-      $adminId: group.adminId,
-      $members: 0,
-      $joined: 0,
-      $isTemporary: group.isTemporary,
-      $durationDays: group.durationDays,
-      $accent: group.accent,
-    });
-  }
-}
-
-const groupCount = db.query("SELECT COUNT(*) as count FROM groups").get() as { count: number };
-if (groupCount.count === 0) seedGroups();
-
-// ---- Helpers ----
-export type DbGroup = {
+type GroupRow = {
   id: string;
   name: string;
   description: string;
   theme: string;
-  adminId: string;
-  members: number;
-  joined: number;
-  isTemporary: number;
-  durationDays: number | null;
+  admin_id: string | null;
+  is_temporary: boolean;
+  duration_days: number | null;
   accent: string;
 };
 
-export type DbPost = {
+type PostRow = {
   id: string;
-  groupId: string;
-  author: string;
-  handle: string;
+  group_id: string;
+  user_id: string;
+  author_name: string;
+  author_handle: string;
   body: string;
-  time: string;
-  likes: number;
-  comments: number;
-  liked?: number;
+  created_at: string;
 };
 
-export function listGroups(): DbGroup[] {
-  return db.query("SELECT id, name, description, theme, adminId, members, joined, isTemporary, durationDays, accent FROM groups").all() as DbGroup[];
+type ProfileBrief = {
+  id: string;
+  name: string;
+};
+
+type ProBrief = {
+  user_id: string;
+  specialty: string;
+  accent: string;
+  status: string;
+};
+
+const VALID_THEMES = new Set(categories.map(c => c.id));
+const VALID_ACCENTS = new Set(["#8b5cf6", "#0f766e", "#db2777", "#f59e0b", "#16a34a", "#2563eb", "#be123c", "#7c3aed"]);
+
+export async function listBlockedUserIds(userId: string): Promise<Set<string>> {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase.from("user_blocks").select("blocked_id").eq("blocker_id", userId);
+  return new Set((data ?? []).map(row => String(row.blocked_id)));
 }
 
-export function createGroup(group: Omit<DbGroup, "joined" | "members"> & { members?: number }) {
-  db.prepare(
-    `INSERT INTO groups (id, name, description, theme, adminId, members, joined, isTemporary, durationDays, accent)
-     VALUES ($id, $name, $description, $theme, $adminId, $members, 1, $isTemporary, $durationDays, $accent)`,
-  ).run({
-    $id: group.id,
-    $name: group.name,
-    $description: group.description,
-    $theme: group.theme,
-    $adminId: group.adminId,
-    $members: group.members ?? 1,
-    $isTemporary: group.isTemporary,
-    $durationDays: group.durationDays,
-    $accent: group.accent,
-  });
+export async function listBlockedUsers(userId: string): Promise<BlockedUser[]> {
+  const supabase = getSupabaseAdmin();
+  const { data: blocks, error } = await supabase
+    .from("user_blocks")
+    .select("blocked_id, created_at")
+    .eq("blocker_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  if (!blocks || blocks.length === 0) return [];
+
+  const ids = blocks.map(item => String(item.blocked_id));
+  const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", ids);
+  const nameById = new Map((profiles ?? []).map(p => [String(p.id), String(p.name)]));
+
+  return blocks.map(row => ({
+    id: String(row.blocked_id),
+    name: nameById.get(String(row.blocked_id)) ?? "Usuário",
+    createdAt: String(row.created_at),
+  }));
 }
 
-export function toggleGroupJoin(groupId: string) {
-  const group = db.query("SELECT joined, members FROM groups WHERE id = $id").get({ $id: groupId }) as { joined: number; members: number } | null;
-  if (!group) return null;
-  const nextJoined = group.joined ? 0 : 1;
-  const nextMembers = group.joined ? Math.max(0, group.members - 1) : group.members + 1;
-  db.prepare("UPDATE groups SET joined = $joined, members = $members WHERE id = $id").run({
-    $joined: nextJoined,
-    $members: nextMembers,
-    $id: groupId,
-  });
-  return { joined: nextJoined, members: nextMembers };
-}
-
-export function listPosts(groupId: string): DbPost[] {
-  return db
-    .query("SELECT id, groupId, author, handle, body, time, likes, comments, liked FROM posts WHERE groupId = $groupId ORDER BY createdAt DESC")
-    .all({ $groupId: groupId }) as DbPost[];
-}
-
-export function addPost(post: DbPost) {
-  db.prepare(
-    `INSERT INTO posts (id, groupId, author, handle, body, time, likes, comments, createdAt)
-     VALUES ($id, $groupId, $author, $handle, $body, $time, $likes, $comments, $createdAt)`,
-  ).run({
-    $id: post.id,
-    $groupId: post.groupId,
-    $author: post.author,
-    $handle: post.handle,
-    $body: post.body,
-    $time: post.time,
-    $likes: post.likes,
-    $comments: post.comments,
-    $createdAt: Date.now(),
-  });
-}
-
-export function togglePostLike(postId: string) {
-  const post = db.query("SELECT liked, likes FROM posts WHERE id = $id").get({ $id: postId }) as { liked: number; likes: number } | null;
-  if (!post) return null;
-  const nextLiked = post.liked ? 0 : 1;
-  const nextLikes = post.liked ? Math.max(0, post.likes - 1) : post.likes + 1;
-  db.prepare("UPDATE posts SET liked = $liked, likes = $likes WHERE id = $id").run({
-    $liked: nextLiked,
-    $likes: nextLikes,
-    $id: postId,
-  });
-  return { liked: nextLiked, likes: nextLikes };
-}
-
-export function listChallengeDays(groupId: string): number[] {
-  const rows = db.query("SELECT day FROM challenge_days WHERE groupId = $groupId ORDER BY day ASC").all({ $groupId: groupId }) as { day: number }[];
-  return rows.map(row => row.day);
-}
-
-export function toggleChallengeDay(groupId: string, day: number) {
-  const existing = db.query("SELECT 1 FROM challenge_days WHERE groupId = $groupId AND day = $day").get({ $groupId: groupId, $day: day });
-  if (existing) {
-    db.prepare("DELETE FROM challenge_days WHERE groupId = $groupId AND day = $day").run({ $groupId: groupId, $day: day });
-  } else {
-    db.prepare("INSERT INTO challenge_days (groupId, day) VALUES ($groupId, $day)").run({ $groupId: groupId, $day: day });
+export async function blockUser(blockerId: string, targetUserId: string): Promise<{ error?: string; status?: number }> {
+  if (!targetUserId || blockerId === targetUserId) {
+    return { error: "Usuário inválido para bloqueio.", status: 400 };
   }
-  return listChallengeDays(groupId);
+  const supabase = getSupabaseAdmin();
+  const { data: target } = await supabase.from("profiles").select("id").eq("id", targetUserId).maybeSingle();
+  if (!target) return { error: "Usuário não encontrado.", status: 404 };
+
+  const { error } = await supabase
+    .from("user_blocks")
+    .upsert({ blocker_id: blockerId, blocked_id: targetUserId }, { onConflict: "blocker_id,blocked_id" });
+  if (error) return { error: error.message, status: 500 };
+  return {};
+}
+
+export async function unblockUser(blockerId: string, targetUserId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("user_blocks").delete().eq("blocker_id", blockerId).eq("blocked_id", targetUserId);
+}
+
+export async function listGroups(userId: string): Promise<CommunityGroup[]> {
+  const supabase = getSupabaseAdmin();
+  const [{ data: groups, error }, { data: members }] = await Promise.all([
+    supabase
+      .from("groups")
+      .select("id, name, description, theme, admin_id, is_temporary, duration_days, accent")
+      .order("created_at", { ascending: true }),
+    supabase.from("group_members").select("group_id, user_id"),
+  ]);
+
+  if (error) throw new Error(error.message);
+
+  const adminIds = [...new Set((groups ?? []).map(g => g.admin_id).filter(Boolean) as string[])];
+  let profileMap = new Map<string, ProfileBrief>();
+  let proMap = new Map<string, ProBrief>();
+
+  if (adminIds.length > 0) {
+    const [{ data: profiles }, { data: pros }] = await Promise.all([
+      supabase.from("profiles").select("id, name").in("id", adminIds),
+      supabase.from("professional_profiles").select("user_id, specialty, accent, status").in("user_id", adminIds),
+    ]);
+    profileMap = new Map((profiles ?? []).map(p => [String(p.id), p as ProfileBrief]));
+    proMap = new Map((pros ?? []).map(p => [String(p.user_id), p as ProBrief]));
+  }
+
+  const countByGroup = new Map<string, number>();
+  const joinedSet = new Set<string>();
+  for (const row of members ?? []) {
+    const gid = String(row.group_id);
+    countByGroup.set(gid, (countByGroup.get(gid) ?? 0) + 1);
+    if (String(row.user_id) === userId) joinedSet.add(gid);
+  }
+
+  return ((groups ?? []) as GroupRow[]).map(group => {
+    const adminProfile = group.admin_id ? profileMap.get(group.admin_id) : undefined;
+    const adminPro = group.admin_id ? proMap.get(group.admin_id) : undefined;
+    return {
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      theme: group.theme,
+      adminId: group.admin_id,
+      adminName: adminProfile?.name,
+      adminSpecialty: adminPro?.specialty,
+      adminAccent: adminPro?.accent ?? group.accent,
+      members: countByGroup.get(group.id) ?? 0,
+      joined: joinedSet.has(group.id),
+      isTemporary: group.is_temporary,
+      durationDays: group.duration_days ?? undefined,
+      accent: group.accent,
+    };
+  });
+}
+
+export async function createGroup(
+  user: AuthContext,
+  input: {
+    name: string;
+    description: string;
+    theme: string;
+    adminId?: string | null;
+    isTemporary: boolean;
+    durationDays?: number | null;
+    accent: string;
+  },
+): Promise<{ error?: string; status?: number }> {
+  const name = input.name.trim().slice(0, 80);
+  const description = input.description.trim().slice(0, 400);
+  const theme = VALID_THEMES.has(input.theme) ? input.theme : "";
+  const accent = VALID_ACCENTS.has(input.accent) ? input.accent : "#7c3aed";
+  const isTemporary = Boolean(input.isTemporary);
+  const durationDays = isTemporary ? Number(input.durationDays) : null;
+
+  if (name.length < 3) return { error: "Informe um nome de grupo com pelo menos 3 caracteres.", status: 400 };
+  if (description.length < 5) return { error: "Descreva o objetivo do grupo.", status: 400 };
+  if (!theme) return { error: "Escolha um tema válido para o grupo.", status: 400 };
+  if (isTemporary && (!Number.isInteger(durationDays) || (durationDays ?? 0) < 1 || (durationDays ?? 0) > 90)) {
+    return { error: "A duração do desafio deve estar entre 1 e 90 dias.", status: 400 };
+  }
+
+  const supabase = getSupabaseAdmin();
+  let resolvedAdminId: string | null = null;
+  if (user.role === "medico" && user.professional?.status === "aprovado") {
+    resolvedAdminId = user.id;
+  } else if (input.adminId) {
+    const { data: pro } = await supabase
+      .from("professional_profiles")
+      .select("user_id")
+      .eq("user_id", input.adminId)
+      .eq("status", "aprovado")
+      .maybeSingle();
+    if (pro) resolvedAdminId = String(pro.user_id);
+  }
+
+  const id = `grp-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const { error } = await supabase.from("groups").insert({
+    id,
+    name,
+    description,
+    theme,
+    admin_id: resolvedAdminId,
+    is_temporary: isTemporary,
+    duration_days: durationDays,
+    accent,
+  });
+
+  if (error) return { error: error.message, status: 500 };
+
+  await supabase.from("group_members").upsert({ group_id: id, user_id: user.id }, { onConflict: "group_id,user_id" });
+  return {};
+}
+
+export async function toggleGroupJoin(
+  userId: string,
+  groupId: string,
+): Promise<{ joined: boolean; members: number } | null> {
+  const supabase = getSupabaseAdmin();
+  const { data: group } = await supabase.from("groups").select("id").eq("id", groupId).maybeSingle();
+  if (!group) return null;
+
+  const { data: existing } = await supabase
+    .from("group_members")
+    .select("group_id")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  let joined = false;
+  if (existing) {
+    await supabase.from("group_members").delete().eq("group_id", groupId).eq("user_id", userId);
+    joined = false;
+  } else {
+    await supabase.from("group_members").insert({ group_id: groupId, user_id: userId });
+    joined = true;
+  }
+
+  const { count } = await supabase
+    .from("group_members")
+    .select("*", { count: "exact", head: true })
+    .eq("group_id", groupId);
+
+  return { joined, members: count ?? 0 };
+}
+
+async function hydratePosts(user: AuthContext, rows: PostRow[]): Promise<FeedPost[]> {
+  if (rows.length === 0) return [];
+  const supabase = getSupabaseAdmin();
+  const blocked = await listBlockedUserIds(user.id);
+  const visibleRows = rows.filter(row => !blocked.has(row.user_id));
+  if (visibleRows.length === 0) return [];
+
+  const postIds = visibleRows.map(row => row.id);
+  const groupIds = [...new Set(visibleRows.map(row => row.group_id))];
+
+  const [{ data: likeRows }, { data: commentRows }, { data: groupRows }] = await Promise.all([
+    supabase.from("likes").select("post_id, user_id").in("post_id", postIds),
+    supabase.from("comments").select("post_id, user_id").in("post_id", postIds),
+    supabase.from("groups").select("id, name, theme, admin_id").in("id", groupIds),
+  ]);
+
+  const likesCount = new Map<string, number>();
+  const likedByMe = new Set<string>();
+  for (const row of likeRows ?? []) {
+    const pid = String(row.post_id);
+    likesCount.set(pid, (likesCount.get(pid) ?? 0) + 1);
+    if (String(row.user_id) === user.id) likedByMe.add(pid);
+  }
+
+  const commentsCount = new Map<string, number>();
+  for (const row of commentRows ?? []) {
+    if (blocked.has(String(row.user_id))) continue;
+    const pid = String(row.post_id);
+    commentsCount.set(pid, (commentsCount.get(pid) ?? 0) + 1);
+  }
+
+  const groupMap = new Map(
+    (groupRows ?? []).map(g => [
+      String(g.id),
+      { name: String(g.name), theme: String(g.theme), adminId: g.admin_id ? String(g.admin_id) : null },
+    ]),
+  );
+
+  return visibleRows.map(row => {
+    const groupInfo = groupMap.get(row.group_id);
+    const canDelete =
+      row.user_id === user.id || user.role === "admin" || (groupInfo?.adminId !== null && groupInfo?.adminId === user.id);
+
+    return {
+      id: row.id,
+      groupId: row.group_id,
+      groupName: groupInfo?.name,
+      groupTheme: groupInfo?.theme,
+      userId: row.user_id,
+      author: row.author_name,
+      handle: row.author_handle,
+      body: row.body,
+      time: formatTimeLabel(row.created_at),
+      createdAt: row.created_at,
+      likes: likesCount.get(row.id) ?? 0,
+      comments: commentsCount.get(row.id) ?? 0,
+      liked: likedByMe.has(row.id),
+      canDelete,
+    };
+  });
+}
+
+export async function listPosts(user: AuthContext, groupId: string): Promise<FeedPost[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, group_id, user_id, author_name, author_handle, body, created_at")
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: false })
+    .limit(60);
+
+  if (error) throw new Error(error.message);
+  return hydratePosts(user, (data ?? []) as PostRow[]);
+}
+
+export async function listHomeFeed(user: AuthContext, theme = "all"): Promise<FeedPost[]> {
+  const supabase = getSupabaseAdmin();
+  let groupIds: string[] | null = null;
+  if (theme !== "all") {
+    const { data: themeGroups } = await supabase.from("groups").select("id").eq("theme", theme);
+    groupIds = (themeGroups ?? []).map(g => String(g.id));
+    if (groupIds.length === 0) return [];
+  }
+
+  let query = supabase
+    .from("posts")
+    .select("id, group_id, user_id, author_name, author_handle, body, created_at")
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  if (groupIds) query = query.in("group_id", groupIds);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return hydratePosts(user, (data ?? []) as PostRow[]);
+}
+
+export async function addPost(
+  user: AuthContext,
+  groupId: string,
+  body: string,
+): Promise<{ error?: string; status?: number }> {
+  const cleanBody = body.trim();
+  if (!cleanBody) return { error: "O post não pode estar vazio.", status: 400 };
+  if (cleanBody.length > 1000) return { error: "O post pode ter no máximo 1000 caracteres.", status: 400 };
+
+  const supabase = getSupabaseAdmin();
+  const { data: group } = await supabase.from("groups").select("id").eq("id", groupId).maybeSingle();
+  if (!group) return { error: "Grupo não encontrado.", status: 404 };
+
+  const { error } = await supabase.from("posts").insert({
+    id: `post-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    group_id: groupId,
+    user_id: user.id,
+    author_name: user.name,
+    author_handle: handleFor(user.name),
+    body: cleanBody,
+  });
+
+  if (error) return { error: error.message, status: 500 };
+  return {};
+}
+
+export async function deletePost(user: AuthContext, postId: string): Promise<{ error?: string; status?: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: post } = await supabase.from("posts").select("id, user_id, group_id").eq("id", postId).maybeSingle();
+  if (!post) return { error: "Publicação não encontrada.", status: 404 };
+
+  let isGroupAdmin = false;
+  if (user.role === "medico") {
+    const { data: group } = await supabase.from("groups").select("admin_id").eq("id", post.group_id).maybeSingle();
+    isGroupAdmin = Boolean(group?.admin_id && String(group.admin_id) === user.id);
+  }
+
+  if (String(post.user_id) !== user.id && user.role !== "admin" && !isGroupAdmin) {
+    return { error: "Você não tem permissão para remover esta publicação.", status: 403 };
+  }
+
+  const { error } = await supabase.from("posts").delete().eq("id", postId);
+  if (error) return { error: error.message, status: 500 };
+  return {};
+}
+
+export async function togglePostLike(
+  userId: string,
+  postId: string,
+): Promise<{ liked: boolean; likes: number } | null> {
+  const supabase = getSupabaseAdmin();
+  const { data: post } = await supabase.from("posts").select("id").eq("id", postId).maybeSingle();
+  if (!post) return null;
+
+  const { data: existing } = await supabase
+    .from("likes")
+    .select("post_id")
+    .eq("post_id", postId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  let liked = false;
+  if (existing) {
+    await supabase.from("likes").delete().eq("post_id", postId).eq("user_id", userId);
+    liked = false;
+  } else {
+    await supabase.from("likes").insert({ post_id: postId, user_id: userId });
+    liked = true;
+  }
+
+  const { count } = await supabase.from("likes").select("*", { count: "exact", head: true }).eq("post_id", postId);
+  return { liked, likes: count ?? 0 };
+}
+
+export async function listChallengeDays(userId: string, groupId: string): Promise<number[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("challenge_progress")
+    .select("day")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .order("day", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(row => Number(row.day));
+}
+
+export async function toggleChallengeDay(
+  userId: string,
+  groupId: string,
+  day: number,
+): Promise<{ days?: number[]; error?: string; status?: number }> {
+  const supabase = getSupabaseAdmin();
+  const { data: group } = await supabase
+    .from("groups")
+    .select("is_temporary, duration_days")
+    .eq("id", groupId)
+    .maybeSingle();
+
+  if (!group || !group.is_temporary || !group.duration_days) {
+    return { error: "Este grupo não possui desafio ativo.", status: 400 };
+  }
+  if (!Number.isInteger(day) || day < 1 || day > Number(group.duration_days)) {
+    return { error: "Dia fora do intervalo do desafio.", status: 400 };
+  }
+
+  const { data: existing } = await supabase
+    .from("challenge_progress")
+    .select("day")
+    .eq("group_id", groupId)
+    .eq("user_id", userId)
+    .eq("day", day)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("challenge_progress")
+      .delete()
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .eq("day", day);
+  } else {
+    await supabase.from("challenge_progress").insert({ group_id: groupId, user_id: userId, day });
+  }
+
+  return { days: await listChallengeDays(userId, groupId) };
+}
+
+export async function listChallengeRanking(userId: string, groupId: string): Promise<ChallengeRankEntry[]> {
+  const supabase = getSupabaseAdmin();
+  const [blocked, { data: rows, error }] = await Promise.all([
+    listBlockedUserIds(userId),
+    supabase.from("challenge_progress").select("user_id").eq("group_id", groupId),
+  ]);
+
+  if (error) throw new Error(error.message);
+
+  const countByUser = new Map<string, number>();
+  for (const row of rows ?? []) {
+    const uid = String(row.user_id);
+    if (blocked.has(uid)) continue;
+    countByUser.set(uid, (countByUser.get(uid) ?? 0) + 1);
+  }
+
+  if (!countByUser.has(userId)) {
+    countByUser.set(userId, 0);
+  }
+
+  const userIds = [...countByUser.keys()];
+  const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", userIds);
+  const nameMap = new Map((profiles ?? []).map(p => [String(p.id), String(p.name)]));
+
+  return userIds
+    .map(uid => {
+      const fullName = nameMap.get(uid) ?? "Participante";
+      const firstName = fullName.trim().split(/\s+/)[0] || "Participante";
+      return {
+        name: firstName,
+        done: countByUser.get(uid) ?? 0,
+        isYou: uid === userId,
+      };
+    })
+    .sort((a, b) => b.done - a.done || Number(b.isYou) - Number(a.isYou))
+    .slice(0, 15);
+}
+
+export async function createReport(
+  reporterId: string,
+  input: { targetType: string; targetId: string; reason: string; reportedUserId?: string },
+): Promise<{ error?: string; status?: number }> {
+  const allowedTargets: ReportTargetType[] = ["post", "comment", "user", "message"];
+  if (!allowedTargets.includes(input.targetType as ReportTargetType)) {
+    return { error: "Tipo de denúncia inválido.", status: 400 };
+  }
+  const targetId = input.targetId.trim();
+  const reason = input.reason.trim().slice(0, 400);
+  if (!targetId) return { error: "Item denunciado inválido.", status: 400 };
+  if (reason.length < 3) return { error: "Descreva o motivo da denúncia.", status: 400 };
+
+  const supabase = getSupabaseAdmin();
+  let reportedUserId: string | null = input.reportedUserId?.trim() || null;
+
+  if (!reportedUserId && input.targetType === "post") {
+    const { data } = await supabase.from("posts").select("user_id").eq("id", targetId).maybeSingle();
+    if (data?.user_id) reportedUserId = String(data.user_id);
+  } else if (!reportedUserId && input.targetType === "comment") {
+    const { data } = await supabase.from("comments").select("user_id").eq("id", targetId).maybeSingle();
+    if (data?.user_id) reportedUserId = String(data.user_id);
+  } else if (!reportedUserId && input.targetType === "user") {
+    reportedUserId = targetId;
+  }
+
+  const { error } = await supabase.from("reports").insert({
+    reporter_id: reporterId,
+    target_type: input.targetType,
+    target_id: targetId,
+    reported_user_id: reportedUserId,
+    reason,
+    status: "open",
+  });
+
+  if (error) return { error: error.message, status: 500 };
+  return {};
 }

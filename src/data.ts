@@ -1,4 +1,4 @@
-import type { Category, Professional } from "./types";
+import type { Category } from "./types";
 
 export const categories: Category[] = [
   { id: "ansiedade", label: "Ansiedade", accent: "#8b5cf6" },
@@ -9,41 +9,11 @@ export const categories: Category[] = [
   { id: "exercicio", label: "Exercício físico", accent: "#2563eb" },
 ];
 
-// Temporário: some quando os profissionais passarem a vir do banco (próxima parte)
-export const professionals: Professional[] = [
-  {
-    id: "prof-1",
-    name: "Dra. Camila Nogueira",
-    role: "Psicóloga clínica",
-    specialty: "Ansiedade e burnout",
-    accent: "#7c3aed",
-  },
-  {
-    id: "prof-2",
-    name: "Dr. João Pereira",
-    role: "Psicoterapeuta",
-    specialty: "Relacionamentos",
-    accent: "#0f766e",
-  },
-  {
-    id: "prof-3",
-    name: "Dra. Lívia Andrade",
-    role: "Neuropsicóloga",
-    specialty: "Autoconhecimento",
-    accent: "#be123c",
-  },
-  {
-    id: "prof-4",
-    name: "Dr. Rafael Souza",
-    role: "Educador físico",
-    specialty: "Treinos e desafios",
-    accent: "#2563eb",
-  },
-  {
-    id: "prof-5",
-    name: "Dra. Beatriz Lima",
-    role: "Nutricionista",
-    specialty: "Emagrecimento saudável",
-    accent: "#16a34a",
-  },
-];
+export const SPECIALTY_BY_THEME: Record<string, string> = {
+  ansiedade: "Ansiedade e burnout",
+  autoconhecimento: "Autoconhecimento",
+  relacionamentos: "Relacionamentos",
+  sono: "Sono",
+  emagrecimento: "Emagrecimento saudável",
+  exercicio: "Treinos e desafios",
+};

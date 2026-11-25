@@ -1,15 +1,15 @@
 import { useState, type SyntheticEvent } from "react";
 import type { CommunityGroup, FeedPost } from "./types";
 import { categories } from "./data";
-import { addGroupPostRequest, fetchGroupPosts } from "./api";
-import { avatarInitial } from "./utils";
+import { addGroupPostRequest, fetchGroupPosts, togglePostLikeRequest } from "./api";
+import { PostFeedList } from "./PostFeedList";
 
 type ProGroupsProps = {
   groups: CommunityGroup[];
-  proName: string;
+  currentUserId: string;
 };
 
-export function ProGroups({ groups, proName }: Readonly<ProGroupsProps>) {
+export function ProGroups({ groups, currentUserId }: Readonly<ProGroupsProps>) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [postsByGroup, setPostsByGroup] = useState<Record<string, FeedPost[]>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -48,6 +48,18 @@ export function ProGroups({ groups, proName }: Readonly<ProGroupsProps>) {
     }
   };
 
+  const handleToggleLike = async (groupId: string, post: FeedPost) => {
+    try {
+      const result = await togglePostLikeRequest(post.id);
+      setPostsByGroup(current => ({
+        ...current,
+        [groupId]: (current[groupId] ?? []).map(p => (p.id === post.id ? { ...p, ...result } : p)),
+      }));
+    } catch {
+      // ignora erro transitório
+    }
+  };
+
   return (
     <main className="screen">
       <section className="section-heading">
@@ -79,7 +91,12 @@ export function ProGroups({ groups, proName }: Readonly<ProGroupsProps>) {
                     {group.members.toLocaleString("pt-BR")} participantes
                   </p>
                 </div>
-                <button type="button" className="secondary-btn small" onClick={() => handleToggle(group.id)} aria-expanded={isOpen}>
+                <button
+                  type="button"
+                  className="secondary-btn small"
+                  onClick={() => handleToggle(group.id)}
+                  aria-expanded={isOpen}
+                >
                   {isOpen ? "Fechar" : "Gerenciar"}
                 </button>
               </div>
@@ -93,32 +110,35 @@ export function ProGroups({ groups, proName }: Readonly<ProGroupsProps>) {
                       placeholder="Publicar um aviso ou orientação para o grupo..."
                       rows={2}
                     />
-                    <button type="submit" className="primary-btn small" disabled={busyId === group.id || !(drafts[group.id] ?? "").trim()}>
+                    <button
+                      type="submit"
+                      className="primary-btn small"
+                      disabled={busyId === group.id || !(drafts[group.id] ?? "").trim()}
+                    >
                       {busyId === group.id ? "..." : "Publicar"}
                     </button>
                   </form>
 
-                  {posts.length === 0 && <p className="comments-empty">Ainda não há publicações neste grupo.</p>}
-
-                  {posts.map(post => (
-                    <div key={post.id} className="feed-card feed-card-compact">
-                      <div className="feed-card-top">
-                        <div className="avatar">{avatarInitial(post.author)}</div>
-                        <div className="feed-author-row">
-                          <strong>{post.author}</strong>
-                          {post.author === proName && <span className="pro-badge">Responsável</span>}
-                          <span>{post.handle}</span>
-                          <span>•</span>
-                          <span>{post.time}</span>
-                        </div>
-                      </div>
-                      <p className="feed-body">{post.body}</p>
-                      <div className="feed-actions">
-                        <span>♡ {post.likes}</span>
-                        <span>💬 {post.comments}</span>
-                      </div>
-                    </div>
-                  ))}
+                  <PostFeedList
+                    posts={posts}
+                    currentUserId={currentUserId}
+                    adminId={group.adminId}
+                    emptyMessage="Ainda não há publicações neste grupo."
+                    compact
+                    onToggleLike={post => handleToggleLike(group.id, post)}
+                    onDeletedPost={postId =>
+                      setPostsByGroup(current => ({
+                        ...current,
+                        [group.id]: (current[group.id] ?? []).filter(p => p.id !== postId),
+                      }))
+                    }
+                    onBlockedUser={blockedId =>
+                      setPostsByGroup(current => ({
+                        ...current,
+                        [group.id]: (current[group.id] ?? []).filter(p => p.userId !== blockedId),
+                      }))
+                    }
+                  />
                 </div>
               )}
             </article>

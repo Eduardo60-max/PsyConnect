@@ -16,12 +16,6 @@ export type ChallengeStatsData = {
   medals: Medal[];
 };
 
-export type RankEntry = {
-  name: string;
-  done: number;
-  isYou: boolean;
-};
-
 export function computeChallengeStats(completed: number[], total: number): ChallengeStatsData {
   const days = [...new Set(completed)].filter(day => day >= 1 && day <= total).sort((a, b) => a - b);
 
@@ -33,7 +27,6 @@ export function computeChallengeStats(completed: number[], total: number): Chall
     best = Math.max(best, run);
     previous = day;
   }
-  // "run" termina valendo a sequência que contém o último dia concluído
 
   const done = days.length;
   const finished = total > 0 && done === total;
@@ -62,30 +55,6 @@ export function computeChallengeStats(completed: number[], total: number): Chall
   };
 }
 
-// Medalhas que estavam bloqueadas e passaram a estar desbloqueadas
 export function newlyUnlocked(before: ChallengeStatsData, after: ChallengeStatsData): Medal[] {
   return after.medals.filter((medal, index) => medal.unlocked && !before.medals[index]?.unlocked);
-}
-
-const PEERS = ["Maya", "Léo", "Clara", "Ravi", "Bia"];
-
-function hash(text: string) {
-  let value = 0;
-  for (let i = 0; i < text.length; i++) {
-    value = (value * 31 + (text.codePointAt(i) ?? 0)) >>> 0;
-  }
-  return value;
-}
-
-// Ranking de demonstração: os outros participantes são simulados (valores estáveis por grupo)
-export function buildRanking(groupId: string, total: number, youName: string, youDone: number): RankEntry[] {
-  const peers: RankEntry[] = PEERS.map(name => ({
-    name,
-    done: hash(`${groupId}-${name}`) % (total + 1),
-    isYou: false,
-  }));
-
-  return [...peers, { name: youName, done: youDone, isYou: true }].sort(
-    (a, b) => b.done - a.done || Number(b.isYou) - Number(a.isYou),
-  );
 }

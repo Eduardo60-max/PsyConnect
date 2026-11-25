@@ -12,15 +12,19 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
+    "@capacitor/app": "^7",
     "@capacitor/core": "^7.4.3",
     "@capacitor/ios": "^7.4.3",
+    "@capacitor/preferences": "^7",
+    "@supabase/supabase-js": "^2.119.2",
     "react": "^19",
     "react-dom": "^19"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.3",
+    "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/bun": "latest"
+    "typescript": "^7.0.2"
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { ProChat } from "./types";
 import { avatarInitial } from "./utils";
+import { ReportModal } from "./ReportModal";
 
 type ProInboxProps = {
   chats: ProChat[];
@@ -23,6 +24,8 @@ export function ProInbox({ chats, activeChatId, onSelect, onSend }: Readonly<Pro
   const [draft, setDraft] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reportNotice, setReportNotice] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
 
   const active = chats.find(chat => chat.id === activeChatId);
@@ -35,6 +38,7 @@ export function ProInbox({ chats, activeChatId, onSelect, onSend }: Readonly<Pro
 
   const handleSelect = (id: number) => {
     setError("");
+    setReportNotice("");
     setDraft("");
     onSelect(id);
   };
@@ -99,7 +103,12 @@ export function ProInbox({ chats, activeChatId, onSelect, onSend }: Readonly<Pro
                 <strong>{active.name}</strong>
                 <p>{active.patientEmail}</p>
               </div>
+              <button type="button" className="text-link muted-link" onClick={() => setReporting(true)}>
+                Denunciar
+              </button>
             </div>
+
+            {reportNotice && <output className="auth-success">{reportNotice}</output>}
 
             <div className="chat-messages" ref={messagesRef}>
               {active.messages.length === 0 && (
@@ -139,6 +148,20 @@ export function ProInbox({ chats, activeChatId, onSelect, onSend }: Readonly<Pro
           <p className="empty-state">Selecione uma conversa.</p>
         )}
       </section>
+
+      {reporting && active && (
+        <ReportModal
+          targetType="user"
+          targetId={active.otherUserId}
+          reportedUserId={active.otherUserId}
+          targetLabel={active.name}
+          onClose={() => setReporting(false)}
+          onSubmitted={() => {
+            setReporting(false);
+            setReportNotice("Denúncia enviada para a equipe de moderação.");
+          }}
+        />
+      )}
     </main>
   );
 }

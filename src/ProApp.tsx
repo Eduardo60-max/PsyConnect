@@ -1,30 +1,31 @@
 import { useEffect, useState } from "react";
-import type { CommunityGroup, ProBooking, ProChat } from "./types";
-import type { CurrentUser } from "./AuthGate";
-import { professionals } from "./data";
+import type { AvailabilitySlot, CommunityGroup, CurrentUser, ProBooking, ProChat } from "./types";
 import {
+  addProSlotRequest,
   fetchGroups,
+  fetchProAvailability,
   fetchProBookings,
   fetchProChats,
   proCancelBookingRequest,
   proRescheduleBookingRequest,
+  removeProSlotRequest,
   sendProMessageRequest,
 } from "./api";
 import { usePolling } from "./usePolling";
 import { ProAgenda } from "./ProAgenda";
 import { ProGroups } from "./ProGroups";
 import { ProInbox } from "./ProInbox";
+import { ProfileScreen } from "./ProfileScreen";
 
 type ProAppProps = {
   user: CurrentUser;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onUserUpdated: (user: CurrentUser) => void;
   onLogout: () => void;
 };
 
-type ProTab = "overview" | "agenda" | "groups" | "messages";
-
-const SLOTS = ["Hoje • 16:00", "Hoje • 18:30", "Amanhã • 09:30", "Quarta • 14:00"];
+type ProTab = "overview" | "agenda" | "groups" | "messages" | "profile";
 
 function keepIfSame<T>(current: T, next: T): T {
   return JSON.stringify(current) === JSON.stringify(next) ? current : next;
@@ -34,12 +35,12 @@ function needsReply(chat: ProChat) {
   return chat.messages.at(-1)?.sender === "them";
 }
 
-export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProAppProps>) {
-  const proId = user.proId ?? "";
-  const pro = professionals.find(item => item.id === proId);
+export function ProApp({ user, theme, onToggleTheme, onUserUpdated, onLogout }: Readonly<ProAppProps>) {
+  const pro = user.professional;
 
   const [tab, setTab] = useState<ProTab>("overview");
   const [bookings, setBookings] = useState<ProBooking[]>([]);
+  const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
   const [chats, setChats] = useState<ProChat[]>([]);
   const [groups, setGroups] = useState<CommunityGroup[]>([]);
   const [activeChatId, setActiveChatId] = useState(0);
@@ -47,27 +48,33 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
   const [error, setError] = useState("");
 
   const refresh = async () => {
-    const [loadedBookings, loadedChats, loadedGroups] = await Promise.all([
-      fetchProBookings(proId),
-      fetchProChats(proId),
+    const [loadedBookings, loadedAvailability, loadedChats, loadedGroups] = await Promise.all([
+      fetchProBookings(),
+      fetchProAvailability(),
+      fetchProChats(),
       fetchGroups(),
     ]);
     setBookings(current => keepIfSame(current, loadedBookings));
+    setAvailability(current => keepIfSame(current, loadedAvailability));
     setChats(current => keepIfSame(current, loadedChats));
     setGroups(current => keepIfSame(current, loadedGroups));
   };
 
-  useEffect(() => {
+  const initialLoad = () => {
     setLoading(true);
+    setError("");
     refresh()
-      .then(() => setError(""))
-      .catch(() => setError("Não foi possível carregar o painel agora."))
+      .catch(err => setError(err instanceof Error ? err.message : "Não foi possível carregar o painel agora."))
       .finally(() => setLoading(false));
-  }, [proId]);
+  };
+
+  useEffect(() => {
+    initialLoad();
+  }, [user.id]);
 
   usePolling(true, 4000, refresh);
 
-  const myGroups = groups.filter(group => group.adminId === proId);
+  const myGroups = groups.filter(group => group.adminId === user.id);
   const upcoming = bookings.filter(booking => booking.status !== "canceled");
   const waiting = chats.filter(needsReply);
   const participants = myGroups.reduce((sum, group) => sum + group.members, 0);
@@ -75,9 +82,28 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
 
   const failure = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
+  const handleAddSlot = async (slotLabel: string, startsAt?: string | null): Promise<string | null> => {
+    try {
+      setAvailability(await addProSlotRequest(slotLabel, startsAt));
+      return null;
+    } catch (err) {
+      return failure(err, "Não foi possível abrir o horário.");
+    }
+  };
+
+  const handleRemoveSlot = async (slotId: string): Promise<string | null> => {
+    try {
+      setAvailability(await removeProSlotRequest(slotId));
+      return null;
+    } catch (err) {
+      return failure(err, "Não foi possível remover o horário.");
+    }
+  };
+
   const handleCancel = async (id: string): Promise<string | null> => {
     try {
-      setBookings(await proCancelBookingRequest(proId, id));
+      setBookings(await proCancelBookingRequest(id));
+      setAvailability(await fetchProAvailability());
       return null;
     } catch (err) {
       return failure(err, "Não foi possível cancelar a sessão.");
@@ -86,7 +112,8 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
 
   const handleReschedule = async (id: string, slot: string): Promise<string | null> => {
     try {
-      setBookings(await proRescheduleBookingRequest(proId, id, slot));
+      setBookings(await proRescheduleBookingRequest(id, slot));
+      setAvailability(await fetchProAvailability());
       return null;
     } catch (err) {
       return failure(err, "Não foi possível remarcar a sessão.");
@@ -95,7 +122,7 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
 
   const handleSend = async (chatId: number, text: string): Promise<string | null> => {
     try {
-      setChats(await sendProMessageRequest(proId, chatId, text));
+      setChats(await sendProMessageRequest(chatId, text));
       return null;
     } catch (err) {
       return failure(err, "Não foi possível enviar a mensagem.");
@@ -111,9 +138,9 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="brand-mark">PsyConect · Painel do profissional</p>
+          <p className="brand-mark">PsyConnect · Profissional</p>
           <span className="brand-subtitle">
-            {pro ? `${pro.role} · ${pro.specialty}` : "Profissional"}
+            {pro ? `${pro.roleTitle} · ${pro.specialty}` : "Profissional"}
           </span>
         </div>
         <nav className="nav-links" aria-label="Navegação do painel">
@@ -131,9 +158,12 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
             Mensagens
             {waiting.length > 0 && <span className="nav-badge">{waiting.length}</span>}
           </button>
+          <button type="button" className={tab === "profile" ? "nav-link active" : "nav-link"} onClick={() => setTab("profile")}>
+            Perfil
+          </button>
         </nav>
         <div className="topbar-user">
-          <span className="topbar-greeting">Olá, {user.name}</span>
+          <span className="topbar-greeting">Olá, {user.name.split(" ")[0]}</span>
           <button
             type="button"
             className="theme-toggle"
@@ -157,7 +187,12 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
 
       {!loading && error && (
         <main className="screen">
-          <p className="empty-state">{error}</p>
+          <div className="empty-state network-error-box">
+            <p>{error}</p>
+            <button type="button" className="primary-btn small" onClick={initialLoad}>
+              Tentar de novo
+            </button>
+          </div>
         </main>
       )}
 
@@ -176,12 +211,12 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
               <span>sessões marcadas</span>
             </div>
             <div className="stat-tile">
-              <strong>{waiting.length}</strong>
-              <span>mensagens sem resposta</span>
+              <strong>{availability.filter(s => !s.booked).length}</strong>
+              <span>horários livres</span>
             </div>
             <div className="stat-tile">
-              <strong>{myGroups.length}</strong>
-              <span>grupos que administra</span>
+              <strong>{waiting.length}</strong>
+              <span>mensagens sem resposta</span>
             </div>
             <div className="stat-tile">
               <strong>{participants.toLocaleString("pt-BR")}</strong>
@@ -257,13 +292,30 @@ export function ProApp({ user, theme, onToggleTheme, onLogout }: Readonly<ProApp
       )}
 
       {!loading && !error && tab === "agenda" && (
-        <ProAgenda bookings={bookings} slots={SLOTS} onCancel={handleCancel} onReschedule={handleReschedule} />
+        <ProAgenda
+          bookings={bookings}
+          availability={availability}
+          onAddSlot={handleAddSlot}
+          onRemoveSlot={handleRemoveSlot}
+          onCancel={handleCancel}
+          onReschedule={handleReschedule}
+        />
       )}
 
-      {!loading && !error && tab === "groups" && <ProGroups groups={myGroups} proName={user.name} />}
+      {!loading && !error && tab === "groups" && <ProGroups groups={myGroups} currentUserId={user.id} />}
 
       {!loading && !error && tab === "messages" && (
         <ProInbox chats={chats} activeChatId={selectedChatId} onSelect={setActiveChatId} onSend={handleSend} />
+      )}
+
+      {!loading && !error && tab === "profile" && (
+        <ProfileScreen
+          user={user}
+          theme={theme}
+          onToggleTheme={onToggleTheme}
+          onUserUpdated={onUserUpdated}
+          onLogout={onLogout}
+        />
       )}
     </div>
   );

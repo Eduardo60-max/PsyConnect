@@ -65,6 +65,7 @@ export function DoctorSignupForm({ onSubmit, onBack, onOpenLegal }: Readonly<Doc
 
     setBusy(true);
     setFormError("");
+    const now = new Date().toISOString();
     try {
       await onSubmit({
         name: name.trim().replaceAll(/\s+/g, " "),
@@ -73,7 +74,8 @@ export function DoctorSignupForm({ onSubmit, onBack, onOpenLegal }: Readonly<Doc
         crmUf,
         specialty,
         password,
-        acceptedTermsAt: new Date().toISOString(),
+        acceptedTermsAt: now,
+        acceptedTruthAt: now,
       });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Não foi possível enviar o cadastro agora. Tente de novo.");

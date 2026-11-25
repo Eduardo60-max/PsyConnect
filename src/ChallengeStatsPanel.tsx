@@ -1,25 +1,22 @@
-import { buildRanking, computeChallengeStats } from "./challengeStats";
+import type { ChallengeRankEntry } from "./types";
+import { computeChallengeStats } from "./challengeStats";
 
 type ChallengeStatsPanelProps = {
-  groupId: string;
   total: number;
   accent: string;
   completedDays: number[];
-  userName: string;
+  ranking: ChallengeRankEntry[];
 };
 
 const PODIUM = ["🥇", "🥈", "🥉"];
 
 export function ChallengeStatsPanel({
-  groupId,
   total,
   accent,
   completedDays,
-  userName,
+  ranking,
 }: Readonly<ChallengeStatsPanelProps>) {
   const stats = computeChallengeStats(completedDays, total);
-  const firstName = userName.trim().split(/\s+/)[0] || "Você";
-  const ranking = buildRanking(groupId, total, firstName, stats.done);
   const position = ranking.findIndex(entry => entry.isYou) + 1;
 
   return (
@@ -71,29 +68,35 @@ export function ChallengeStatsPanel({
 
       <div className="insight-card">
         <h3>Ranking de participação</h3>
-        <p className="ranking-note">
-          Você está em {position}º lugar. Os outros participantes são simulados nesta demonstração.
-        </p>
-        <ol className="ranking-list">
-          {ranking.map((entry, index) => {
-            const percent = total > 0 ? Math.round((entry.done / total) * 100) : 0;
-            return (
-              <li key={entry.name} className={entry.isYou ? "ranking-item you" : "ranking-item"}>
-                <span className="ranking-pos">{PODIUM[index] ?? `${index + 1}º`}</span>
-                <span className="ranking-name">
-                  {entry.name}
-                  {entry.isYou ? " (você)" : ""}
-                </span>
-                <div className="progress-bar-track ranking-bar">
-                  <div className="progress-bar-fill" style={{ width: `${percent}%`, backgroundColor: accent }} />
-                </div>
-                <span className="ranking-score">
-                  {entry.done}/{total}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+        {ranking.length === 0 ? (
+          <p className="ranking-note">Marque o primeiro dia do desafio para iniciar sua pontuação.</p>
+        ) : (
+          <>
+            {position > 0 && (
+              <p className="ranking-note">Você está em {position}º lugar entre os participantes deste desafio.</p>
+            )}
+            <ol className="ranking-list">
+              {ranking.map((entry, index) => {
+                const percent = total > 0 ? Math.round((entry.done / total) * 100) : 0;
+                return (
+                  <li key={`${entry.name}-${index}`} className={entry.isYou ? "ranking-item you" : "ranking-item"}>
+                    <span className="ranking-pos">{PODIUM[index] ?? `${index + 1}º`}</span>
+                    <span className="ranking-name">
+                      {entry.name}
+                      {entry.isYou ? " (você)" : ""}
+                    </span>
+                    <div className="progress-bar-track ranking-bar">
+                      <div className="progress-bar-fill" style={{ width: `${percent}%`, backgroundColor: accent }} />
+                    </div>
+                    <span className="ranking-score">
+                      {entry.done}/{total}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </>
+        )}
       </div>
     </>
   );

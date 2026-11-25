@@ -1,9 +1,8 @@
-import type { CommunityGroup, Professional } from "./types";
+import type { CommunityGroup } from "./types";
 import { avatarInitial } from "./utils";
 
 type GroupCardProps = {
   group: CommunityGroup;
-  admin: Professional | undefined;
   categoryLabel: string;
   onToggleJoin: (groupId: string) => void;
   onOpenDetail: (groupId: string) => void;
@@ -11,11 +10,10 @@ type GroupCardProps = {
 
 export function GroupCard({
   group,
-  admin,
   categoryLabel,
   onToggleJoin,
   onOpenDetail,
-}: GroupCardProps) {
+}: Readonly<GroupCardProps>) {
   return (
     <article className="feed-card">
       <div className="feed-card-top">
@@ -34,9 +32,10 @@ export function GroupCard({
 
       <p className="feed-body">{group.description}</p>
 
-      {admin && (
+      {group.adminName && (
         <p className="group-card-admin-role">
-          {admin.name} · {admin.specialty}
+          {group.adminName}
+          {group.adminSpecialty ? ` · ${group.adminSpecialty}` : ""}
         </p>
       )}
 

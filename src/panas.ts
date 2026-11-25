@@ -1,12 +1,13 @@
+import { getStoredString, setStoredString } from "./storage";
+
 export type PanasMoment = "before" | "after";
 export type PanasKind = "positive" | "negative";
 export type PanasAnswers = Record<number, number>;
 
 export type PanasItem = { id: number; label: string; kind: PanasKind };
 
-// ATENÇÃO: tradução provisória dos 20 adjetivos do PANAS (Watson, Clark e Tellegen, 1988),
-// na ordem original da escala. Confirme com o orientador qual versão validada em português
-// usar (ex.: a adaptação brasileira de Carvalho et al., 2013) e ajuste só os "label" abaixo.
+// 20 adjetivos do PANAS (Watson, Clark e Tellegen, 1988) na ordem original da escala.
+// Verifique com o orientador qual adaptação validada em português deseja fixar antes da coleta final.
 export const PANAS_ITEMS: PanasItem[] = [
   { id: 1, label: "Interessado", kind: "positive" },
   { id: 2, label: "Angustiado", kind: "negative" },
@@ -64,9 +65,6 @@ export function scorePanas(answers: PanasAnswers): PanasScore | null {
   return { positive, negative };
 }
 
-// ---------------------------------------------------------------------------
-// Armazenamento local (TEMPORÁRIO: na fase do Supabase, grave em survey_responses)
-// ---------------------------------------------------------------------------
 export type PanasRecord = {
   sessionId: string;
   moment: PanasMoment;
@@ -76,95 +74,38 @@ export type PanasRecord = {
   answeredAt: string;
 };
 
-export type ActiveSession = { sessionId: string; startedAt: string };
+export type ActiveTestSession = { sessionId: string; startedAt: string };
 
-export type PanasStore = {
-  code: string; // código anônimo do participante (não é o e-mail)
-  active: ActiveSession | null;
-  records: PanasRecord[];
+export type PanasDraftState = {
+  active: ActiveTestSession | null;
   drafts: Partial<Record<PanasMoment, PanasAnswers>>;
 };
 
-const STORE_PREFIX = "psyconect_panas_v1_";
+const DRAFT_PREFIX = "psyconnect_panas_draft_v2_";
 
-function storeKey(email: string) {
-  return `${STORE_PREFIX}${email.trim().toLowerCase()}`;
+function draftKey(userId: string) {
+  return `${DRAFT_PREFIX}${userId}`;
 }
 
-function newStore(): PanasStore {
-  const code = `P-${Math.floor(1000 + Math.random() * 9000)}`;
-  return { code, active: null, records: [], drafts: {} };
-}
-
-function isStore(value: unknown): value is PanasStore {
-  if (typeof value !== "object" || value === null) return false;
-  const item = value as Record<string, unknown>;
-  return (
-    typeof item.code === "string" &&
-    Array.isArray(item.records) &&
-    typeof item.drafts === "object" &&
-    item.drafts !== null
-  );
-}
-
-export function loadStore(email: string): PanasStore {
+export async function loadPanasDraftState(userId: string): Promise<PanasDraftState> {
   try {
-    const raw = window.localStorage.getItem(storeKey(email));
+    const raw = await getStoredString(draftKey(userId));
     if (raw) {
       const parsed: unknown = JSON.parse(raw);
-      if (isStore(parsed)) return { ...parsed, active: parsed.active ?? null };
+      if (typeof parsed === "object" && parsed !== null) {
+        const obj = parsed as Record<string, unknown>;
+        return {
+          active: (obj.active as ActiveTestSession | null) ?? null,
+          drafts: (obj.drafts as Partial<Record<PanasMoment, PanasAnswers>>) ?? {},
+        };
+      }
     }
   } catch {
-    // dados corrompidos ou armazenamento bloqueado: recomeça
+    // dados corrompidos: recomeça rascunho vazio
   }
-  return newStore();
+  return { active: null, drafts: {} };
 }
 
-export function saveStore(email: string, store: PanasStore) {
-  try {
-    window.localStorage.setItem(storeKey(email), JSON.stringify(store));
-  } catch {
-    // sem espaço ou armazenamento bloqueado: só não persiste
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Exportação (sem e-mail: só o código anônimo)
-// ---------------------------------------------------------------------------
-export function buildCsv(store: PanasStore): string {
-  const header = [
-    "codigo_participante",
-    "sessao",
-    "momento",
-    "data",
-    ...PANAS_ITEMS.map(item => `item_${item.id}_${item.label.toLowerCase()}`),
-    "afeto_positivo",
-    "afeto_negativo",
-  ];
-
-  const lines = store.records.map(record =>
-    [
-      store.code,
-      record.sessionId,
-      record.moment === "before" ? "antes" : "depois",
-      record.answeredAt,
-      ...PANAS_ITEMS.map(item => String(record.answers[item.id] ?? "")),
-      String(record.positive),
-      String(record.negative),
-    ].join(","),
-  );
-
-  return [header.join(","), ...lines].join("\n");
-}
-
-export function downloadCsv(store: PanasStore) {
-  const blob = new Blob([`\uFEFF${buildCsv(store)}`], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `panas-${store.code}.csv`;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+export async function savePanasDraftState(userId: string, state: PanasDraftState): Promise<void> {
+  await setStoredString(draftKey(userId), JSON.stringify(state));
 }

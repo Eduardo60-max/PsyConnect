@@ -1,16 +1,24 @@
 import { useState, type FormEvent } from "react";
-import type { Category, CommunityGroup, Professional } from "./types";
+import type { Category, Professional } from "./types";
 
 type GroupCreateModalProps = {
   categories: Category[];
   professionals: Professional[];
-  onCreate: (group: CommunityGroup) => void;
+  onCreate: (input: {
+    name: string;
+    description: string;
+    theme: string;
+    adminId?: string | null;
+    isTemporary: boolean;
+    durationDays?: number;
+    accent: string;
+  }) => Promise<void> | void;
   onClose: () => void;
 };
 
 const accentOptions = ["#8b5cf6", "#0f766e", "#db2777", "#f59e0b", "#16a34a", "#2563eb", "#be123c"];
 
-export function GroupCreateModal({ categories, professionals, onCreate, onClose }: GroupCreateModalProps) {
+export function GroupCreateModal({ categories, professionals, onCreate, onClose }: Readonly<GroupCreateModalProps>) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [theme, setTheme] = useState(categories[0]?.id ?? "");
@@ -18,25 +26,26 @@ export function GroupCreateModal({ categories, professionals, onCreate, onClose 
   const [isTemporary, setIsTemporary] = useState(false);
   const [durationDays, setDurationDays] = useState(5);
   const [accent, setAccent] = useState<string>(accentOptions[0]!);
+  const [busy, setBusy] = useState(false);
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || !description.trim() || !adminId) return;
+    if (!name.trim() || !description.trim() || busy) return;
 
-    const group: CommunityGroup = {
-      id: `grp-${Date.now()}`,
-      name: name.trim(),
-      description: description.trim(),
-      theme,
-      adminId,
-      members: 1,
-      joined: true,
-      isTemporary,
-      durationDays: isTemporary ? durationDays : undefined,
-      accent,
-    };
-
-    onCreate(group);
+    setBusy(true);
+    try {
+      await onCreate({
+        name: name.trim(),
+        description: description.trim(),
+        theme,
+        adminId: adminId || null,
+        isTemporary,
+        durationDays: isTemporary ? durationDays : undefined,
+        accent,
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -60,6 +69,7 @@ export function GroupCreateModal({ categories, professionals, onCreate, onClose 
               value={name}
               onChange={event => setName(event.target.value)}
               placeholder="Ex: Manhãs Mais Calmas"
+              maxLength={80}
               required
             />
           </label>
@@ -71,6 +81,7 @@ export function GroupCreateModal({ categories, professionals, onCreate, onClose 
               onChange={event => setDescription(event.target.value)}
               placeholder="Conte em poucas palavras o objetivo do grupo"
               rows={3}
+              maxLength={400}
               required
             />
           </label>
@@ -87,8 +98,9 @@ export function GroupCreateModal({ categories, professionals, onCreate, onClose 
           </label>
 
           <label>
-            Profissional responsável
+            Profissional responsável (opcional)
             <select value={adminId} onChange={event => setAdminId(event.target.value)}>
+              <option value="">Comunidade aberta</option>
               {professionals.map(professional => (
                 <option key={professional.id} value={professional.id}>
                   {professional.name} · {professional.specialty}
@@ -135,8 +147,8 @@ export function GroupCreateModal({ categories, professionals, onCreate, onClose 
             </div>
           </div>
 
-          <button type="submit" className="primary-btn full-width">
-            Criar grupo
+          <button type="submit" className="primary-btn full-width" disabled={busy}>
+            {busy ? "Criando..." : "Criar grupo"}
           </button>
         </form>
       </div>

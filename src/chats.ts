@@ -1,136 +1,136 @@
-import { Database } from "bun:sqlite";
-import { professionals } from "./data";
+import type { Conversation, ConversationMessage, ProChat } from "./types";
+import { getSupabaseAdmin } from "./supabaseServer";
+import { colorFor } from "./proUtils";
+import { formatTimeLabel } from "./timeUtils";
 
-const db = new Database("psyconect.sqlite", { create: true });
-db.exec("PRAGMA journal_mode = WAL;");
+type ConversationRow = {
+  id: number;
+  patient_id: string;
+  doctor_id: string;
+  created_at: string;
+};
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS chats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    patientEmail TEXT NOT NULL,
-    patientName TEXT NOT NULL,
-    proId TEXT NOT NULL,
-    createdAt INTEGER NOT NULL,
-    UNIQUE (patientEmail, proId)
-  )
-`);
+type MessageRow = {
+  id: number;
+  conversation_id: number;
+  sender_id: string;
+  body: string;
+  created_at: string;
+};
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS chat_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chatId INTEGER NOT NULL,
-    sender TEXT NOT NULL,
-    text TEXT NOT NULL,
-    time TEXT NOT NULL,
-    createdAt INTEGER NOT NULL
-  )
-`);
-
-export type ChatMessageView = { id: number; sender: string; text: string; time: string };
-export type ChatView = { id: number; name: string; context: string; accent: string; messages: ChatMessageView[] };
-export type ProChatView = ChatView & { patientEmail: string };
-
-export type ChatRow = { id: number; patientEmail: string; patientName: string; proId: string };
-type MessageRow = { id: number; chatId: number; sender: string; text: string; time: string; createdAt: number };
-
-const ACCENTS = ["#7c3aed", "#0f766e", "#be123c", "#2563eb", "#16a34a", "#f59e0b"];
-
-function colorFor(text: string) {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + (text.codePointAt(i) ?? 0)) >>> 0;
-  }
-  return ACCENTS[hash % ACCENTS.length] ?? "#4f46e5";
-}
-
-function insertMessage(chatId: number, sender: "patient" | "pro", text: string, time: string) {
-  db.prepare(
-    `INSERT INTO chat_messages (chatId, sender, text, time, createdAt)
-     VALUES ($chatId, $sender, $text, $time, $createdAt)`,
-  ).run({ $chatId: chatId, $sender: sender, $text: text, $time: time, $createdAt: Date.now() });
-}
-
-function loadMessages(chatIds: number[]) {
+async function loadMessagesByConversation(conversationIds: number[]): Promise<Map<number, MessageRow[]>> {
   const byChat = new Map<number, MessageRow[]>();
-  if (chatIds.length === 0) return byChat;
+  if (conversationIds.length === 0) return byChat;
 
-  const marks = chatIds.map(() => "?").join(",");
-  const rows = db
-    .query(
-      `SELECT id, chatId, sender, text, time, createdAt FROM chat_messages
-       WHERE chatId IN (${marks}) ORDER BY createdAt ASC, id ASC`,
-    )
-    .all(...chatIds) as MessageRow[];
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, conversation_id, sender_id, body, created_at")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
-  for (const row of rows) {
-    const list = byChat.get(row.chatId) ?? [];
+  if (error) throw new Error(error.message);
+
+  for (const row of (data ?? []) as MessageRow[]) {
+    const list = byChat.get(row.conversation_id) ?? [];
     list.push(row);
-    byChat.set(row.chatId, list);
+    byChat.set(row.conversation_id, list);
   }
   return byChat;
 }
 
-// "me" = quem está olhando; "them" = a outra pessoa
-function toView(rows: MessageRow[] | undefined, viewer: "patient" | "pro"): ChatMessageView[] {
+function toView(rows: MessageRow[] | undefined, viewerId: string): ConversationMessage[] {
   return (rows ?? []).map(row => ({
     id: row.id,
-    sender: row.sender === viewer ? "me" : "them",
-    text: row.text,
-    time: row.time,
+    sender: row.sender_id === viewerId ? "me" : "them",
+    text: row.body,
+    time: formatTimeLabel(row.created_at),
   }));
 }
 
-// Cria a conversa paciente <-> profissional se ainda não existir (chamada ao agendar)
-export function ensureChat(email: string, name: string, proId: string) {
-  db.prepare(
-    `INSERT OR IGNORE INTO chats (patientEmail, patientName, proId, createdAt)
-     VALUES ($email, $name, $proId, $createdAt)`,
-  ).run({ $email: email, $name: name || "Paciente", $proId: proId, $createdAt: Date.now() });
-
-  if (name) {
-    db.prepare("UPDATE chats SET patientName = $name WHERE patientEmail = $email").run({ $name: name, $email: email });
-  }
+export async function ensureChat(patientId: string, doctorId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  await supabase
+    .from("conversations")
+    .upsert({ patient_id: patientId, doctor_id: doctorId }, { onConflict: "patient_id,doctor_id" });
 }
 
-export function listPatientChats(email: string): ChatView[] {
-  const chats = db
-    .query("SELECT id, patientEmail, patientName, proId FROM chats WHERE patientEmail = $email ORDER BY id ASC")
-    .all({ $email: email }) as ChatRow[];
-  const messages = loadMessages(chats.map(chat => chat.id));
+export async function listPatientChats(patientId: string): Promise<Conversation[]> {
+  const supabase = getSupabaseAdmin();
+  const { data: chats, error } = await supabase
+    .from("conversations")
+    .select("id, patient_id, doctor_id, created_at")
+    .eq("patient_id", patientId)
+    .order("id", { ascending: true });
 
-  return chats.flatMap(chat => {
-    const pro = professionals.find(item => item.id === chat.proId);
-    if (!pro) return [];
-    return [
-      {
-        id: chat.id,
-        name: pro.name,
-        context: `${pro.role} · ${pro.specialty}`,
-        accent: pro.accent,
-        messages: toView(messages.get(chat.id), "patient"),
-      },
-    ];
+  if (error) throw new Error(error.message);
+  const chatRows = (chats ?? []) as ConversationRow[];
+  if (chatRows.length === 0) return [];
+
+  const doctorIds = [...new Set(chatRows.map(c => c.doctor_id))];
+  const [messagesMap, { data: profiles }, { data: pros }] = await Promise.all([
+    loadMessagesByConversation(chatRows.map(c => c.id)),
+    supabase.from("profiles").select("id, name").in("id", doctorIds),
+    supabase.from("professional_profiles").select("user_id, role_title, specialty, accent").in("user_id", doctorIds),
+  ]);
+
+  const nameMap = new Map((profiles ?? []).map(p => [String(p.id), String(p.name)]));
+  const proMap = new Map((pros ?? []).map(p => [String(p.user_id), p]));
+
+  return chatRows.map(chat => {
+    const pro = proMap.get(chat.doctor_id);
+    const roleTitle = pro?.role_title ? String(pro.role_title) : "Médico(a)";
+    const specialty = pro?.specialty ? String(pro.specialty) : "Atendimento";
+    return {
+      id: chat.id,
+      otherUserId: chat.doctor_id,
+      name: nameMap.get(chat.doctor_id) ?? "Profissional",
+      context: `${roleTitle} · ${specialty}`,
+      accent: pro?.accent ? String(pro.accent) : "#7c3aed",
+      messages: toView(messagesMap.get(chat.id), patientId),
+    };
   });
 }
 
-export function listProChats(proId: string): ProChatView[] {
-  const chats = db
-    .query("SELECT id, patientEmail, patientName, proId FROM chats WHERE proId = $proId")
-    .all({ $proId: proId }) as ChatRow[];
-  const messages = loadMessages(chats.map(chat => chat.id));
+export async function listProChats(doctorId: string): Promise<ProChat[]> {
+  const supabase = getSupabaseAdmin();
+  const { data: chats, error } = await supabase
+    .from("conversations")
+    .select("id, patient_id, doctor_id, created_at")
+    .eq("doctor_id", doctorId);
 
-  return chats
+  if (error) throw new Error(error.message);
+  const chatRows = (chats ?? []) as ConversationRow[];
+  if (chatRows.length === 0) return [];
+
+  const patientIds = [...new Set(chatRows.map(c => c.patient_id))];
+  const [messagesMap, { data: profiles }] = await Promise.all([
+    loadMessagesByConversation(chatRows.map(c => c.id)),
+    supabase.from("profiles").select("id, name, email").in("id", patientIds),
+  ]);
+
+  const patientMap = new Map(
+    (profiles ?? []).map(p => [String(p.id), { name: String(p.name), email: String(p.email) }]),
+  );
+
+  return chatRows
     .map(chat => {
-      const rows = messages.get(chat.id) ?? [];
+      const rows = messagesMap.get(chat.id) ?? [];
+      const patient = patientMap.get(chat.patient_id);
+      const patientEmail = patient?.email ?? "";
+      const lastAt = rows.at(-1) ? new Date(rows.at(-1)!.created_at).getTime() : new Date(chat.created_at).getTime();
+
       return {
-        lastAt: rows.at(-1)?.createdAt ?? 0,
+        lastAt,
         view: {
           id: chat.id,
-          name: chat.patientName,
-          context: `Paciente · ${chat.patientEmail}`,
-          accent: colorFor(chat.patientEmail),
-          patientEmail: chat.patientEmail,
-          messages: toView(rows, "pro"),
+          otherUserId: chat.patient_id,
+          name: patient?.name ?? "Paciente",
+          context: patientEmail ? `Paciente · ${patientEmail}` : "Paciente",
+          accent: colorFor(patientEmail || chat.patient_id),
+          patientEmail,
+          messages: toView(rows, doctorId),
         },
       };
     })
@@ -138,22 +138,74 @@ export function listProChats(proId: string): ProChatView[] {
     .map(item => item.view);
 }
 
-function getChat(chatId: number): ChatRow | null {
-  return db
-    .query("SELECT id, patientEmail, patientName, proId FROM chats WHERE id = $id")
-    .get({ $id: chatId }) as ChatRow | null;
+export async function getConversationMessages(
+  viewerId: string,
+  conversationId: number,
+): Promise<{ messages?: ConversationMessage[]; error?: string; status?: number }> {
+  if (!Number.isInteger(conversationId) || conversationId <= 0) {
+    return { error: "Conversa inválida.", status: 400 };
+  }
+  const supabase = getSupabaseAdmin();
+  const { data: chat } = await supabase
+    .from("conversations")
+    .select("id, patient_id, doctor_id")
+    .eq("id", conversationId)
+    .maybeSingle<ConversationRow>();
+
+  if (!chat) return { error: "Conversa não encontrada.", status: 404 };
+  if (chat.patient_id !== viewerId && chat.doctor_id !== viewerId) {
+    return { error: "Você não tem acesso a esta conversa.", status: 403 };
+  }
+
+  const messagesMap = await loadMessagesByConversation([conversationId]);
+  return { messages: toView(messagesMap.get(conversationId), viewerId) };
 }
 
-export function addPatientMessage(email: string, chatId: number, text: string, time: string): ChatRow | null {
-  const chat = getChat(chatId);
-  if (!chat || chat.patientEmail !== email) return null;
-  insertMessage(chatId, "patient", text, time);
-  return chat;
-}
+export async function addChatMessage(
+  senderId: string,
+  mode: "patient" | "doctor",
+  conversationId: number,
+  body: string,
+): Promise<{ error?: string; status?: number }> {
+  if (!Number.isInteger(conversationId) || conversationId <= 0) {
+    return { error: "Conversa inválida.", status: 400 };
+  }
+  const cleanText = body.trim();
+  if (!cleanText) return { error: "A mensagem não pode estar vazia.", status: 400 };
+  if (cleanText.length > 1000) return { error: "A mensagem pode ter no máximo 1000 caracteres.", status: 400 };
 
-export function addProMessage(proId: string, chatId: number, text: string, time: string): ChatRow | null {
-  const chat = getChat(chatId);
-  if (!chat || chat.proId !== proId) return null;
-  insertMessage(chatId, "pro", text, time);
-  return chat;
+  const supabase = getSupabaseAdmin();
+  const { data: chat } = await supabase
+    .from("conversations")
+    .select("id, patient_id, doctor_id")
+    .eq("id", conversationId)
+    .maybeSingle<ConversationRow>();
+
+  if (!chat) return { error: "Conversa não encontrada.", status: 404 };
+
+  const isOwner = mode === "patient" ? chat.patient_id === senderId : chat.doctor_id === senderId;
+  if (!isOwner) {
+    return { error: "Você não tem permissão para enviar mensagem nesta conversa.", status: 403 };
+  }
+
+  const otherId = mode === "patient" ? chat.doctor_id : chat.patient_id;
+  const { data: block } = await supabase
+    .from("user_blocks")
+    .select("blocker_id")
+    .or(`and(blocker_id.eq.${senderId},blocked_id.eq.${otherId}),and(blocker_id.eq.${otherId},blocked_id.eq.${senderId})`)
+    .limit(1)
+    .maybeSingle();
+
+  if (block) {
+    return { error: "Não é possível enviar mensagens porque um dos usuários bloqueou o outro.", status: 403 };
+  }
+
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: conversationId,
+    sender_id: senderId,
+    body: cleanText,
+  });
+
+  if (error) return { error: error.message, status: 500 };
+  return {};
 }
