@@ -32,11 +32,11 @@ import {
 import { logoutRequest, restoreSessionUser } from "./authService";
 import { loadRuntimeConfig, validateApiBaseUrl } from "./runtimeConfig";
 import { subscribeAndroidBackButton, subscribeDeepLinks } from "./nativeBridge";
-import { GroupsScreen } from "./GroupsScreen";
-import { GroupDetailModal } from "./GroupDetailModal";
+import { GroupsScreen } from "./Groupsscreen";
+import { GroupDetailModal } from "./Groupdetailmodal";
 import { GroupCreateModal } from "./GroupCreateModal";
 import { GroupRoom } from "./GroupRoom";
-import { MessagesScreen } from "./MessagesScreen";
+import { MessagesScreen } from "./Messagesscreen";
 import { MyBookings } from "./MyBookings";
 import { AuthGate } from "./AuthGate";
 import { CrisisNotice } from "./CrisisNotice";

@@ -24,14 +24,22 @@ bun run dev
 
 Acesse [http://localhost:3000](http://localhost:3000).
 
-## 3. Build de produção e Android (Capacitor)
+## 3. Publicar a API no Railway
+
+1. No Railway, crie um projeto a partir deste repositório. O `Dockerfile` e o `railway.json` na raiz configuram a compilação, a porta e a verificação de saúde.
+2. Em **Variables**, configure `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `SUPABASE_SERVICE_ROLE_KEY` com os valores do projeto Supabase. Guarde `SUPABASE_SERVICE_ROLE_KEY` somente como variável secreta do Railway; nunca a coloque no app ou no APK.
+3. Configure `CORS_ORIGINS` como `capacitor://localhost,https://localhost` e inclua também a origem HTTPS do site web, se houver. Configure `ADMIN_EMAILS` com os e-mails de administradores, separados por vírgula.
+4. Gere um domínio público HTTPS para o serviço no Railway e confirme que `https://SEU-DOMINIO/api/public-config` responde.
+5. Em **Supabase → Authentication → URL Configuration**, inclua `com.psyconnect.app://auth-callback` nas URLs de redirecionamento.
+
+O Railway fornece a variável `PORT` automaticamente. A API escuta nessa porta e vincula o servidor a `0.0.0.0`.
+
+## 4. Build de produção e Android (Capacitor)
 
 Para gerar o bundle web apontando para a API hospedada em HTTPS:
 
 ```powershell
-$env:BUN_PUBLIC_API_URL="https://api.seu-dominio.com"
-$env:BUN_PUBLIC_SUPABASE_URL="https://seu-projeto.supabase.co"
-$env:BUN_PUBLIC_SUPABASE_ANON_KEY="sua-anon-key"
+$env:BUN_PUBLIC_API_URL="https://SEU-DOMINIO.up.railway.app"
 bun run mobile:sync
 ```
 
@@ -42,9 +50,9 @@ cd android
 ./gradlew assembleDebug
 ```
 
-> **Importante:** guarde o arquivo `.keystore` de assinatura fora do Git com cópia segura.
+> O APK de depuração é assinado para testes. **Importante:** guarde o arquivo `.keystore` de assinatura de produção fora do Git e com cópia segura.
 
-## 4. Rotas da API (`/api/...`)
+## 5. Rotas da API (`/api/...`)
 
 Todas as rotas autenticadas exigem o cabeçalho `Authorization: Bearer <access_token>` do Supabase Auth. A identidade (`user.id`, papel `paciente`/`medico`/`admin`) é sempre carregada do token no servidor.
 

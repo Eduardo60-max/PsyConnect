@@ -679,6 +679,7 @@ for (let attempt = 0; attempt < maxPortAttempts; attempt++) {
   const port = basePort + attempt;
   try {
     const server = serve({
+      hostname: "0.0.0.0",
       port,
       routes,
       development: process.env.NODE_ENV !== "production" && {
